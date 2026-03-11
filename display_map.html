@@ -1,0 +1,1590 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <title>Global Display Hegemony Map</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@400;500;600;700&display=swap');
+
+    :root {
+      --china-red: #D32F2F;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: #060810;
+      font-family: 'Rajdhani', sans-serif;
+      overflow: hidden;
+      cursor: crosshair;
+    }
+
+    #map { width: 100vw; height: 100vh; }
+
+    #hud-header {
+      position: absolute; top: 0; left: 0; right: 0; z-index: 1000;
+      background: linear-gradient(180deg, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0) 100%);
+      padding: 14px 24px 28px; pointer-events: none;
+    }
+    #hud-title {
+      font-family: 'Share Tech Mono', monospace; font-size: 12px; letter-spacing: 4px;
+      color: rgba(255,255,255,0.85); text-transform: uppercase; text-align: center;
+    }
+    #hud-sub {
+      font-size: 10px; color: rgba(255,255,255,0.35); letter-spacing: 3px;
+      text-align: center; margin-top: 3px;
+    }
+
+    .fab-marker {
+      border-radius: 50%; display: flex; align-items: center; justify-content: center;
+      font-family: 'Share Tech Mono', monospace; font-weight: 900; color: #fff;
+      border: 2px solid rgba(255,255,255,0.45);
+      box-shadow: 0 0 14px rgba(0,0,0,0.95), 0 0 0 1px rgba(255,255,255,0.05);
+      cursor: crosshair; transition: transform 0.12s ease; position: relative;
+    }
+    .fab-marker:hover { transform: scale(1.18); border-color: rgba(255,255,255,0.9); z-index: 9999 !important; }
+
+    /* OLED 팩토리 — 금색 링 */
+    .fab-marker.oled-fab::after {
+      content: ''; position: absolute; inset: -6px; border-radius: 50%;
+      border: 2px solid #FFD700; opacity: 0.65;
+      animation: oled-ring 2.2s ease-in-out infinite;
+    }
+    @keyframes oled-ring { 0%,100%{opacity:0.65;transform:scale(1)} 50%{opacity:0.15;transform:scale(1.25)} }
+
+    /* 건설중 */
+    .fab-marker.under-construction { border-style: dashed; border-color: rgba(255,255,255,0.28); opacity: 0.65; }
+
+    /* 매각/폐쇄 — 회색 + X 표시 */
+    .fab-marker.sold-fab {
+      border: 2px dashed rgba(255,215,0,0.7) !important;
+      opacity: 0.8;
+    }
+    .fab-marker.sold-fab::before {
+      content: ''; position: absolute; inset: -5px; border-radius: 50%;
+      border: 1.5px solid rgba(255,215,0,0.5);
+      animation: sold-ring 3s linear infinite;
+      z-index: 1;
+    }
+    @keyframes sold-ring { 0%{transform:rotate(0deg)} 100%{transform:rotate(360deg)} }
+
+    .fab-marker.closed-fab {
+      opacity: 0.35; filter: grayscale(80%);
+      border-color: rgba(200,50,50,0.5) !important;
+      border-style: dashed !important;
+    }
+    .fab-marker.closed-fab::after {
+      content: '✕'; position: absolute; top: 50%; left: 50%;
+      transform: translate(-50%,-50%);
+      color: rgba(255,80,80,0.9); font-size: 11px; font-weight: 900;
+      text-shadow: 0 0 4px rgba(255,0,0,0.7);
+    }
+
+    /* 중국 위험 링 */
+    .fab-marker.china-risk::before {
+      content: ''; position: absolute; inset: -6px; border-radius: 50%;
+      border: 1.5px dashed rgba(255,82,82,0.75);
+      animation: rotate-warning 4s linear infinite; z-index: 1;
+    }
+    .fab-marker.sold-fab.china-risk::before { border-color: rgba(255,215,0,0.7); }
+    .fab-marker.closed-fab.china-risk::before { display: none; }
+
+    @keyframes rotate-warning { 0%{transform:rotate(0deg)} 100%{transform:rotate(360deg)} }
+
+    /* LEGENDS */
+    #legend {
+      position: absolute; bottom: 20px; left: 16px; z-index: 1000;
+      background: rgba(4,8,20,0.88); border: 1px solid rgba(255,255,255,0.08);
+      backdrop-filter: blur(12px); padding: 10px 14px; border-radius: 4px;
+      min-width: 170px; pointer-events: auto; user-select: none;
+    }
+    #legend h3 {
+      font-family: 'Share Tech Mono', monospace; font-size: 9px; letter-spacing: 2px;
+      color: rgba(255,255,255,0.3); display: flex; align-items: center;
+      justify-content: space-between; gap: 10px; cursor: pointer;
+    }
+    #legend h3:hover { color: rgba(255,255,255,0.6); }
+    #legend h3 .leg-chevron { font-size: 11px; color: rgba(255,255,255,0.3); transition: transform 0.25s ease; }
+    #legend.expanded h3 .leg-chevron { transform: rotate(180deg); }
+    #legend-body {
+      overflow: hidden; max-height: 0; transition: max-height 0.32s ease, opacity 0.25s ease, margin-top 0.25s ease;
+      opacity: 0; margin-top: 0;
+    }
+    #legend.expanded #legend-body { max-height: 700px; opacity: 1; margin-top: 9px; }
+    #legend-body hr.leg-divider { border: none; border-top: 1px solid rgba(255,255,255,0.07); margin: 7px 0; }
+    .leg-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+    .leg-dot { width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid rgba(255,255,255,0.3); flex-shrink: 0; }
+    .leg-txt { font-size: 11px; color: rgba(255,255,255,0.55); font-weight: 500; }
+
+    .leg-china-ring { position: relative; width: 14px; height: 14px; flex-shrink: 0; }
+    .leg-china-ring .inner { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid rgba(255,255,255,0.3); }
+    .leg-china-ring .ring { position: absolute; inset: 0; border-radius: 50%; border: 1px dashed rgba(255,82,82,0.7); animation: rotate-warning 4s linear infinite; }
+
+    #size-legend {
+      position: absolute; bottom: 20px; right: 16px; z-index: 1000;
+      background: rgba(4,8,20,0.88); border: 1px solid rgba(255,255,255,0.08);
+      backdrop-filter: blur(12px); padding: 10px 14px; border-radius: 4px;
+      pointer-events: auto; user-select: none;
+    }
+    #size-legend h3 {
+      font-family: 'Share Tech Mono', monospace; font-size: 9px; letter-spacing: 2px;
+      color: rgba(255,255,255,0.3); display: flex; align-items: center;
+      justify-content: space-between; gap: 10px; cursor: pointer;
+    }
+    #size-legend h3:hover { color: rgba(255,255,255,0.6); }
+    #size-legend h3 .sz-chevron { font-size: 11px; color: rgba(255,255,255,0.3); transition: transform 0.25s ease; }
+    #size-legend.expanded h3 .sz-chevron { transform: rotate(180deg); }
+    #size-legend-body {
+      overflow: hidden; max-height: 0; transition: max-height 0.32s ease, opacity 0.25s ease, margin-top 0.25s ease;
+      opacity: 0; margin-top: 0;
+    }
+    #size-legend.expanded #size-legend-body { max-height: 300px; opacity: 1; margin-top: 9px; }
+    .sz-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+    .sz-circle { border-radius: 50%; border: 1.5px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.05); flex-shrink: 0; }
+    .sz-txt { font-size: 10px; color: rgba(255,255,255,0.4); }
+    .sz-sub { font-size: 9px; color: rgba(255,255,255,0.2); }
+
+    #hover-hint {
+      position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 1000;
+      font-family: 'Share Tech Mono', monospace; font-size: 10px; letter-spacing: 2px;
+      color: rgba(255,255,255,0.2); pointer-events: none; white-space: nowrap;
+    }
+
+    .dark-tiles { filter: invert(100%) hue-rotate(180deg) brightness(75%) contrast(110%); }
+
+    .leaflet-popup, .leaflet-tooltip { display: none !important; }
+
+    /* HOVER POPUP (Chamiseul Themed) */
+    #hover-popup {
+      position: absolute; z-index: 3000; width: 340px; pointer-events: none;
+      display: none; flex-direction: column; gap: 12px; padding: 16px;
+      background: rgba(10,25,20,0.7); backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(0,255,136,0.3); border-radius: 12px;
+      box-shadow: 0 4px 30px rgba(0,255,136,0.2), inset 0 1px 0 rgba(255,255,255,0.2);
+      transition: opacity 0.2s cubic-bezier(0.4,0,0.2,1); opacity: 0;
+    }
+    #hover-popup.visible { display: flex; opacity: 1; }
+    #hover-popup.touch-popup {
+      position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%);
+      pointer-events: auto; width: 90%; max-width: 360px;
+    }
+    #hover-popup::before {
+      content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px;
+      background: linear-gradient(90deg, transparent, #00ff88, transparent);
+      border-top-left-radius: 12px; border-top-right-radius: 12px;
+    }
+    #hp-close-btn {
+      position: absolute; top: 10px; right: 12px; background: none; border: none;
+      color: rgba(0,255,136,0.6); font-size: 16px; cursor: pointer; display: none;
+    }
+    #hover-popup.touch-popup #hp-close-btn { display: block; }
+    #hp-close-btn:hover { color: #00ff88; }
+    
+    .hp-company { font-family: 'Share Tech Mono', monospace; font-size: 12px; font-weight: 700; letter-spacing: 1.5px; color: #00ff88; text-shadow: 0 0 10px rgba(0,255,136,0.5); }
+    .hp-name { font-size: 16px; font-weight: 700; color: #ffffff; line-height: 1.35; margin-top: -6px; }
+    .hp-specs { display: flex; flex-wrap: wrap; gap: 6px; }
+    .hp-spec { background: rgba(0,255,136,0.1); border: 1px solid rgba(0,255,136,0.3); border-radius: 4px; padding: 3px 8px; font-family: 'Share Tech Mono', monospace; font-size: 11px; color: #bbf7d0; }
+    .hp-divider { border: none; height: 1px; background: linear-gradient(90deg, rgba(0,255,136,0.0), rgba(0,255,136,0.5), rgba(0,255,136,0.0)); }
+    .hp-intel-line { font-size: 13px; color: rgba(220,240,230,0.9); line-height: 1.6; }
+  </style>
+</head>
+
+<body>
+  <div id="map"></div>
+
+  <div id="hud-header">
+    <div id="hud-title">// GLOBAL DISPLAY HEGEMONY MAP</div>
+    <div id="hud-sub">DISPLAY PANEL FAB INTELLIGENCE · SOURCES VERIFIED · 2024–2026</div>
+  </div>
+
+  <div id="legend">
+    <h3>// COMPANY LEGEND <span class="leg-chevron">▼</span></h3>
+    <div id="legend-body">
+      <div style="font-family:'Share Tech Mono',monospace;font-size:8px;color:rgba(255,255,255,0.25);letter-spacing:2px;margin-bottom:5px;">— KOREA —</div>
+      <div class="leg-row">
+        <div class="leg-dot" style="background:#0044CC"></div>
+        <div class="leg-txt">삼성디스플레이</div>
+      </div>
+      <div class="leg-row">
+        <div class="leg-dot" style="background:#D40000"></div>
+        <div class="leg-txt">LG Display</div>
+      </div>
+      <hr class="leg-divider">
+      <div style="font-family:'Share Tech Mono',monospace;font-size:8px;color:rgba(255,255,255,0.25);letter-spacing:2px;margin-bottom:5px;">— TAIWAN —</div>
+      <div class="leg-row">
+        <div class="leg-dot" style="background:#7C3AED"></div>
+        <div class="leg-txt">Innolux (群創)</div>
+      </div>
+      <div class="leg-row">
+        <div class="leg-dot" style="background:#0891B2"></div>
+        <div class="leg-txt">AUO (友達)</div>
+      </div>
+      <hr class="leg-divider">
+      <div style="font-family:'Share Tech Mono',monospace;font-size:8px;color:rgba(255,255,255,0.25);letter-spacing:2px;margin-bottom:5px;">— JAPAN —</div>
+      <div class="leg-row">
+        <div class="leg-dot" style="background:#4F46E5"></div>
+        <div class="leg-txt">Sharp (シャープ)</div>
+      </div>
+      <div class="leg-row">
+        <div class="leg-dot" style="background:#1D4ED8"></div>
+        <div class="leg-txt">JDI</div>
+      </div>
+      <hr class="leg-divider">
+      <div style="font-family:'Share Tech Mono',monospace;font-size:8px;color:rgba(255,120,120,0.5);letter-spacing:2px;margin-bottom:5px;">— CHINA —</div>
+      <div class="leg-row">
+        <div class="leg-china-ring"><div class="inner" style="background:#0D9488"></div><div class="ring"></div></div>
+        <div class="leg-txt" style="color:rgba(255,120,120,0.8)">BOE (京东方)</div>
+      </div>
+      <div class="leg-row">
+        <div class="leg-china-ring"><div class="inner" style="background:#D97706"></div><div class="ring"></div></div>
+        <div class="leg-txt" style="color:rgba(255,120,120,0.8)">TCL CSOT (华星光电)</div>
+      </div>
+      <div class="leg-row">
+        <div class="leg-china-ring"><div class="inner" style="background:#9D174D"></div><div class="ring"></div></div>
+        <div class="leg-txt" style="color:rgba(255,120,120,0.8)">Tianma / HKC / Visionox</div>
+      </div>
+      <div class="leg-row">
+        <div class="leg-dot" style="background:#ff5555;border-color:#ff5555"></div>
+        <div class="leg-txt" style="color:rgba(255,85,85,0.9)">TSMC (파운드리)</div>
+      </div>
+      <hr class="leg-divider">
+      <div class="leg-row">
+        <div style="width:10px;height:10px;border-radius:50%;border:1.5px dashed rgba(255,255,255,0.3);flex-shrink:0"></div>
+        <div class="leg-txt" style="font-size:10px;color:rgba(255,255,255,0.3)">건설/예정</div>
+      </div>
+      <div class="leg-row">
+        <div style="width:10px;height:10px;border-radius:50%;border:1.5px solid #FFD700;flex-shrink:0;background:rgba(255,215,0,0.1)"></div>
+        <div class="leg-txt" style="font-size:10px;color:rgba(255,215,0,0.6)">매각 (Sold)</div>
+      </div>
+      <div class="leg-row">
+        <div style="width:10px;height:10px;border-radius:50%;border:1.5px dashed rgba(200,50,50,0.5);flex-shrink:0;opacity:0.4;background:rgba(200,50,50,0.1)"></div>
+        <div class="leg-txt" style="font-size:10px;color:rgba(255,100,100,0.5)">폐쇄 (Closed)</div>
+      </div>
+      <div class="leg-row">
+        <div style="width:10px;height:10px;border-radius:50%;border:2px solid #FFD700;flex-shrink:0;background:rgba(255,215,0,0.08)"></div>
+        <div class="leg-txt" style="font-size:10px;color:rgba(255,255,255,0.3)">OLED 팩토리</div>
+      </div>
+    </div>
+  </div>
+
+  <div id="size-legend">
+    <h3>// CAPACITY SCALE <span class="sz-chevron">▼</span></h3>
+    <div id="size-legend-body">
+      <div class="sz-row"><div class="sz-circle" style="width:50px;height:50px"></div><div><div class="sz-txt">&gt;150K kspm</div><div class="sz-sub">메가 팩토리</div></div></div>
+      <div class="sz-row"><div class="sz-circle" style="width:34px;height:34px"></div><div><div class="sz-txt">50–150K kspm</div><div class="sz-sub">대형 팹</div></div></div>
+      <div class="sz-row"><div class="sz-circle" style="width:22px;height:22px"></div><div><div class="sz-txt">15–50K kspm</div><div class="sz-sub">중형 팹</div></div></div>
+      <div class="sz-row"><div class="sz-circle" style="width:14px;height:14px"></div><div><div class="sz-txt">&lt;15K kspm</div><div class="sz-sub">소형/특수</div></div></div>
+    </div>
+  </div>
+
+  <div id="hover-hint">▷ HOVER / TAP MARKER → QUICK INTEL</div>
+
+  <div id="hover-popup">
+    <button id="hp-close-btn" onclick="closeHoverPopup()">✕</button>
+    <div class="hp-company" id="hp-company"></div>
+    <div class="hp-name" id="hp-name"></div>
+    <div class="hp-specs" id="hp-specs"></div>
+    <hr class="hp-divider">
+    <div id="hp-ai-section"></div>
+  </div>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      var legend = document.getElementById('legend');
+      legend.querySelector('h3').addEventListener('click', function(e) { e.stopPropagation(); legend.classList.toggle('expanded'); });
+      var sizeLegend = document.getElementById('size-legend');
+      sizeLegend.querySelector('h3').addEventListener('click', function(e) { e.stopPropagation(); sizeLegend.classList.toggle('expanded'); });
+    });
+
+    var BADGE_COLORS = {
+      samsung:  { bg: 'rgba(0,68,204,0.2)',    color: '#60a5fa', border: '#60a5fa' },
+      lgdisplay:{ bg: 'rgba(212,0,0,0.2)',      color: '#f87171', border: '#f87171' },
+      innolux:  { bg: 'rgba(124,58,237,0.2)',   color: '#a78bfa', border: '#a78bfa' },
+      auo:      { bg: 'rgba(8,145,178,0.2)',    color: '#22d3ee', border: '#22d3ee' },
+      sharp:    { bg: 'rgba(79,70,229,0.2)',    color: '#818cf8', border: '#818cf8' },
+      jdi:      { bg: 'rgba(29,78,216,0.2)',    color: '#60a5fa', border: '#60a5fa' },
+      boe:      { bg: 'rgba(13,149,136,0.25)',  color: '#2dd4bf', border: '#2dd4bf' },
+      csot:     { bg: 'rgba(217,119,6,0.25)',   color: '#fbbf24', border: '#fbbf24' },
+      tianma:   { bg: 'rgba(157,23,77,0.25)',   color: '#f472b6', border: '#f472b6' },
+      hkc:      { bg: 'rgba(180,83,9,0.25)',    color: '#fb923c', border: '#fb923c' },
+      visionox: { bg: 'rgba(124,45,18,0.25)',   color: '#fb923c', border: '#fb923c' },
+      tsmc:     { bg: 'rgba(229,20,0,0.2)',     color: '#ff5555', border: '#ff5555' }
+    };
+
+    var _hoverPopupEl = null, _hoverCloseTimer = null, _popupByTouch = false;
+    function _getHoverPopup() { if (!_hoverPopupEl) _hoverPopupEl = document.getElementById('hover-popup'); return _hoverPopupEl; }
+    
+    function _positionHoverPopup(e) {
+      var popup = _getHoverPopup();
+      var mx = e.originalEvent.clientX, my = e.originalEvent.clientY;
+      var pw = 360, ph = 260, vw = window.innerWidth, vh = window.innerHeight;
+      var left = mx + 20, top = my - 20;
+      if (left + pw > vw - 10) left = mx - pw - 14;
+      if (top + ph > vh - 10) top = vh - ph - 10;
+      if (top < 10) top = 10;
+      popup.style.left = left + 'px'; popup.style.top = top + 'px'; popup.style.transform = '';
+    }
+
+    function _fillPopupContent(fab) {
+      var bc = BADGE_COLORS[fab.badgeClass] || BADGE_COLORS['boe'];
+      var compEl = document.getElementById('hp-company');
+      compEl.textContent = fab.company; compEl.style.color = bc.color;
+      document.getElementById('hp-name').textContent = fab.name;
+      
+      var specParts = [];
+      if (fab.node) specParts.push(fab.node);
+      if (fab.type) specParts.push(fab.type);
+      if (fab.kspm) specParts.push(Math.round(fab.kspm / 1000) + 'K kspm');
+      if (fab.isSold) specParts.push('📦 매각/추진');
+      if (fab.isClosed) specParts.push('🚫 폐쇄');
+      document.getElementById('hp-specs').innerHTML = specParts.map(function(s) { return '<span class="hp-spec">' + s + '</span>'; }).join('');
+      
+      var html = '';
+      if (fab.isSold) {
+        html += '<div class="hp-intel-line" style="padding:6px 0;line-height:1.55;font-size:12.5px;color:rgba(255,215,0,0.9);"><span style="color:#FFD700;font-size:11px;margin-right:5px;">▶</span>매각 완료/추진 → ' + (fab.soldTo || '매각됨') + '</div>';
+      }
+      if (fab.isClosed) {
+        html += '<div class="hp-intel-line" style="padding:6px 0;line-height:1.55;font-size:12.5px;color:rgba(255,100,100,0.9);"><span style="color:#ff6464;font-size:11px;margin-right:5px;">▶</span>' + (fab.closedNote || '가동 중단') + '</div>';
+      }
+
+      if (fab.intel && fab.intel.length > 0) {
+        html += fab.intel.slice(0, 3).map(function(item, idx) {
+          var isLast = (idx === Math.min(fab.intel.length, 3) - 1);
+          var border = isLast ? '' : 'border-bottom:1px solid rgba(255,255,255,0.06);';
+          var srcMeta = '';
+          if (item.source || item.date) { 
+            srcMeta = ' <span style="font-family:\'Share Tech Mono\',monospace;font-size:11px;color:rgba(0,255,136,0.6);margin-left:4px;">[' + (item.source || '') + (item.source && item.date ? ' / ' : '') + (item.date || '') + ']</span>'; 
+          }
+          return '<div class="hp-intel-line" style="padding:8px 0;' + border + 'line-height:1.55;font-size:12.5px;color:rgba(230,245,240,0.95);"><span style="color:#00ff88;font-size:11px;margin-right:5px;vertical-align:middle;">▶</span>' + item.text + srcMeta + '</div>';
+        }).join('');
+      } else if (fab.overview) {
+        html += '<div class="hp-intel-line" style="padding:6px 0;line-height:1.55;font-size:12.5px;color:rgba(230,245,240,0.95);"><span style="color:#00ff88;font-size:11px;margin-right:5px;vertical-align:middle;">▶</span>' + fab.overview + '</div>';
+      } else {
+        html += '<div style="font-size:11px;color:rgba(255,255,255,0.4);padding:6px 0;">— 기록 없음 —</div>';
+      }
+      
+      document.getElementById('hp-ai-section').innerHTML = html;
+    }
+
+    function showHoverPopup(fab, e) {
+      if (_popupByTouch) return;
+      if (_hoverCloseTimer) { clearTimeout(_hoverCloseTimer); _hoverCloseTimer = null; }
+      var popup = _getHoverPopup();
+      _fillPopupContent(fab); popup.classList.remove('touch-popup');
+      _positionHoverPopup(e); popup.classList.add('visible');
+    }
+
+    function showTouchPopup(fab) {
+      if (_hoverCloseTimer) { clearTimeout(_hoverCloseTimer); _hoverCloseTimer = null; }
+      _popupByTouch = true;
+      var popup = _getHoverPopup();
+      _fillPopupContent(fab); popup.classList.add('touch-popup'); popup.classList.add('visible');
+    }
+
+    function closeHoverPopup() {
+      if (_hoverCloseTimer) { clearTimeout(_hoverCloseTimer); _hoverCloseTimer = null; }
+      _popupByTouch = false;
+      var popup = _getHoverPopup();
+      if (popup) { popup.classList.remove('visible'); popup.classList.remove('touch-popup'); }
+    }
+
+    function hideHoverPopup() {
+      if (_popupByTouch) return;
+      _hoverCloseTimer = setTimeout(function() { var p = _getHoverPopup(); if (p) p.classList.remove('visible'); }, 200);
+    }
+
+    var map = L.map('map', { center: [30, 118], zoom: 4, zoomControl: false, maxBounds: [[-85,-180],[85,180]], maxBoundsViscosity: 1.0, minZoom: 2 });
+    L.control.zoom({ position: 'topright' }).addTo(map);
+    L.tileLayer('https://mt1.google.com/vt/lyrs=m&hl=ko-KR&gl=KR&x={x}&y={y}&z={z}', { maxZoom: 18, noWrap: true, className: 'dark-tiles' }).addTo(map);
+
+    (function() {
+      var seaPane = map.createPane('eastSeaPane'); seaPane.style.zIndex = 350; seaPane.style.pointerEvents = 'none';
+      var _seaLabel = L.marker([37.5, 131], { icon: L.divIcon({ className: '', html: '<div style="font-family:\'Share Tech Mono\',monospace;font-size:11px;color:rgba(150,165,200,0.5);letter-spacing:3px;white-space:nowrap;user-select:none;">동해</div>', iconSize: [60,20], iconAnchor: [30,10] }), interactive: false, pane: 'eastSeaPane' }).addTo(map);
+      map.on('zoomend', function() { _seaLabel.setOpacity(map.getZoom() > 7 ? 0 : 1); });
+    })();
+
+    function calcSize(kspm) {
+      if (!kspm || kspm <= 0) return 14;
+      var t = (Math.log(kspm) - Math.log(5000)) / (Math.log(200000) - Math.log(5000));
+      return Math.round(14 + Math.max(0, Math.min(1, t)) * (66 - 14));
+    }
+
+    function createIcon(fab) {
+      var sz = calcSize(fab.kspm);
+      var fs = Math.max(9, Math.round(sz * 0.34));
+      var cls = 'fab-marker';
+      if (fab.isOled) cls += ' oled-fab';
+      if (fab.underConstruction) cls += ' under-construction';
+      if (fab.isSold) cls += ' sold-fab';
+      if (fab.isClosed) cls += ' closed-fab';
+      if (fab.isChina) cls += ' china-risk';
+      
+      var html = '<div class="' + cls + '" style="width:' + sz + 'px;height:' + sz + 'px;background:' + fab.color + ';font-size:' + fs + 'px;">' + (!fab.isClosed ? fab.letter : '') + '</div>';
+      return L.divIcon({ className: '', html: html, iconSize: [sz, sz], iconAnchor: [sz/2, sz/2] });
+    }
+
+    var fabs = [
+      // ★ SAMSUNG DISPLAY
+      {
+        company: '삼성디스플레이', badgeClass: 'samsung',
+        name: 'Giheung Campus — 경기 용인 (본사 및 R&D)',
+        lat: 37.258, lng: 127.112,
+        type: '헤드쿼터 및 선행 R&D', node: 'SDR · MicroOLED · 차세대 디스플레이',
+        kspm: 5000, color: '#0044CC', letter: 'R',
+        sourceUrl: 'https://www.samsungdisplay.com/',
+        overview: '삼성디스플레이 본사(Headquarters) 및 글로벌 R&D 컨트롤타워. 신축 연구동(SDR)을 거점으로 OLEDoS(마이크로OLED), 퀀텀닷, IT용 탠덤 OLED 등 초격차 선행 기술을 총괄합니다.',
+        intel: [
+          { text: '기흥 캠퍼스 내 신규 연구동 \'SDR(Samsung Display Research)\' 가동 본격화 — 흩어진 연구 인력을 통합해 차세대 디스플레이 초격차 기술 개발 가속', source: 'TheElec', date: '2024.08' },
+          { text: 'eMagin(미국) 인수 후 기흥 R&D 라인에 MicroOLED 파일럿 설비 구축 — Apple Vision Pro 등 XR 기기 시장 겨냥', source: 'OLED-Info', date: '2024.05' }
+        ]
+      },
+      {
+        company: '삼성디스플레이', badgeClass: 'samsung',
+        name: 'Cheonan Campus — 충남 천안 (모듈 및 R&D)',
+        lat: 36.840, lng: 127.121,
+        type: 'OLED 모듈 / R&D', node: 'OLED 모듈조립 · QD-OLED R&D',
+        kspm: 10000, color: '#0044CC', letter: 'M',
+        sourceUrl: 'https://www.samsungdisplay.com/',
+        overview: '과거 세계 1위 LCD 생산 기지였으나 현재는 중소형 OLED 모듈 후공정 및 차세대 QD-OLED 선행 R&D 라인으로 활용. 일부 공간은 HBM 등 첨단 반도체 패키징용으로 삼성전자에 대여 중입니다.',
+        intel: [
+          { text: '천안 캠퍼스 잔여 대형 LCD 건물, 삼성전자에 첨단 패키징(HBM) 설비용으로 임대 — AI 반도체 수요 폭증에 따른 그룹 차원의 인프라 재배치', source: 'Digitimes', date: '2024.01' }
+        ]
+      },
+      {
+        company: '삼성디스플레이', badgeClass: 'samsung',
+        name: 'Asan A3/A4/A5 — 충남 아산 (스마트폰·폴더블)',
+        lat: 36.8045, lng: 127.0445,
+        type: 'Gen6 LTPO OLED (스마트폰·폴더블)', node: 'Gen6 LTPO·LTPO3 OLED · 폴더블 · Galaxy/iPhone',
+        kspm: 135000, color: '#0044CC', letter: 'O', isOled: true,
+        sourceUrl: 'https://www.samsungdisplay.com/eng/intro/loc-country.jsp',
+        overview: '세계 최대 스마트폰·폴더블 OLED 거점 · A3(135K/월)·A4·A5 Gen6 LTPO3 양산 · Apple iPhone/Galaxy Z 전담 공급',
+        intel: [
+          { text: 'SDC Q4 2025 영업이익 $1.4B 달성 — 스마트폰·IT·자동차 OLED 패널 출하 증가, 2026년 폴더블 iPhone 독점 공급 확정', source: 'OLED-Info', date: '2025.12' },
+          { text: 'SDC, 2026 Zeekr 9X SUV에 3개 OLED 공급 — BYD·Tesla와 자동차 AMOLED 공급 협의, 차량용 OLED 신성장 동력', source: 'OLED-Info', date: '2026.02' },
+          { text: 'BOE B11 2025.12 iPhone OLED 품질 이슈 발생 — Apple이 오더 일부를 SDC로 이전, 아산 가동률 추가 상승', source: 'OLED-Info', date: '2025.12' }
+        ]
+      },
+      {
+        company: '삼성디스플레이', badgeClass: 'samsung',
+        name: 'Asan A6 — 8.6G IT OLED (2026.05 양산 개시)',
+        lat: 36.809, lng: 127.042,
+        type: 'Gen8.6 탠덤 OLED (IT)', node: 'Gen8.6 2-Stack Tandem OLED · 노트북·태블릿 · Apple MacBook Pro',
+        kspm: 15000, color: '#0066FF', letter: 'A', isOled: true, underConstruction: true,
+        sourceUrl: 'https://www.thelec.net/news/articleView.html?idxno=5423',
+        overview: '기존 L8 LCD → A6 8.6G IT OLED 전환 · $3.1B(4.1조원) · 월 15K 기판(7,500+7,500) · 2026.05 양산 개시(당초 Q3보다 앞당겨짐)',
+        intel: [
+          { text: 'SDC A6 2026.01 샘플 생산 개시 확인 — Oxide TFT 2-Stack 탠덤 구조, 노트북 메이커 샘플 배송 완료, 전략적으로 2026.05 양산 개시로 앞당겨짐', source: 'OLED-Info', date: '2026.01' },
+          { text: 'A6 첫 고객은 Apple — MacBook Pro 14·16인치 2026 모델용 탠덤 OLED 독점 공급 계약, 월 7,500장 전담', source: 'TheElec', date: '2025.09' },
+          { text: 'A6 8.6G 탠덤 구조 적용 — 세계 최고세대 IT OLED 라인, 연 1,000만 장(14인치 기준) 생산 능력', source: 'FlatpanelsHD', date: '2024.03' }
+        ]
+      },
+      {
+        company: '삼성디스플레이', badgeClass: 'samsung',
+        name: 'Bac Ninh SDV — 베트남 박닌 (모듈 + 신규 건설)',
+        lat: 21.206, lng: 105.977,
+        type: 'OLED 모듈 조립 + 신규 8.6G 라인(건설중)', node: 'OLED 모듈 · 폴더블 · 8.6G 후공정(건설중)',
+        kspm: 30000, color: '#0044CC', letter: 'M', underConstruction: true,
+        sourceUrl: 'https://www.kedglobal.com/electronics/newsView/ked202409240008',
+        overview: '기존 모듈 조립 공장 운영 + $1.8B 신규 라인 MOU(2024.09) · Asan A6 패널 연 1,000만 장 후공정 처리 · 2026년 가동 목표',
+        intel: [
+          { text: 'SDV 박닌 Yen Phong 산업단지에 $1.8B 신규 OLED 공장 MOU(2024.09) — Asan 8.6G 생산 패널 연 1,000만 장 후공정(모듈 조립), 자동차·IT 기기 타깃', source: 'KED Global / Reuters', date: '2024.09' },
+          { text: '기존 박닌 SDV 2024 1~5월 OLED 패널 수출 $1.5억(전년비 59배 급증) — Apple iPad용 OLED 패널 공급 증가 반영', source: 'Display Daily', date: '2024.07' }
+        ]
+      },
+      {
+        company: '삼성디스플레이', badgeClass: 'samsung',
+        name: 'Asan A2 — 충남 아산 (Rigid OLED)',
+        lat: 36.800, lng: 127.048,
+        type: 'Gen5.5 Rigid OLED', node: 'Gen5.5 Rigid OLED · IT·중저가 폰',
+        kspm: 140000, color: '#0044CC', letter: 'O', isOled: true,
+        sourceUrl: 'https://www.samsungdisplay.com/',
+        overview: '삼성디스플레이의 주력 Rigid(경연성) OLED 생산 기지. 주로 중저가 스마트폰 및 태블릿, 노트북용 IT OLED 패널을 대량 양산.',
+        intel: [
+          { text: '플렉시블 OLED 위주의 A3/A4 라인과 구분되며, 최근 IT 제품군에서의 Rigid OLED 수요 증가로 인해 여전히 현금 창출(Cash Cow)의 중추적 역할을 수행', source: '업계 동향', date: '2024.05' }
+        ]
+      },
+      // ★ LG DISPLAY
+      {
+        company: 'LG Display', badgeClass: 'lgdisplay',
+        name: 'Magok R&D — 서울 마곡 (LG사이언스파크)',
+        lat: 37.561, lng: 126.831,
+        type: '선행 R&D 핵심 거점', node: '차세대 폼팩터 · 투명 OLED · 소재 R&D',
+        kspm: 5000, color: '#D40000', letter: 'R',
+        sourceUrl: 'https://www.lgdisplay.com/',
+        overview: 'LG디스플레이의 미래 먹거리를 책임지는 R&D 전진 기지. 파주 공장(양산/설계)과 연계하여 투명 OLED, 차량용 사운드 솔루션, 친환경 소재 등 차세대 기술을 선행 연구합니다.',
+        intel: [
+          { text: '스트레처블(Stretchable), 투명 OLED 등 차세대 폼팩터 신뢰성 및 상용화 연구 집중 — 차량용 하이엔드 디스플레이 원천 기술 확보', source: 'LG Display 공식', date: '2024.06' }
+        ]
+      },
+      {
+        company: 'LG Display', badgeClass: 'lgdisplay',
+        name: 'Paju P8/P9 OLED TV — 경기 파주',
+        lat: 37.818, lng: 126.765,
+        type: 'OLED TV (8.5G)', node: '8.5G WOLED · 55"~88" TV · iPhone OLED(E6라인)',
+        kspm: 115000, color: '#D40000', letter: 'O', isOled: true,
+        sourceUrl: 'https://www.lgdisplay.com',
+        overview: '세계 유일 대형 WOLED TV 패널 거점 · P8(8.5G WOLED) + P9(WOLED+iPhone E6-1~4) · 2025년 흑자 전환 성공 · 700억원 차세대 OLED 투자 확정',
+        intel: [
+          { text: 'LGD 2025년 4년 만에 흑자 전환 — 중국 프리미엄 TV OLED 채택률 47%→78% 급증, 파주 가동률 90%+, 연 영업이익 5,000억원 이상 전망', source: 'KED Global / Omdia', date: '2025.04' },
+          { text: 'LGD E6 파주 45K→60K/월 증설 확정(2025.09) — Apple iPhone 18용 OLED 공급 목적, 2026 H2 완공 예정, E6 라인 총 4개로 확장', source: 'OLED-Info', date: '2025.09' },
+          { text: 'LGD IT OLED 라인(E6-4, iPad용 탠덤 OLED)을 iPhone 스마트폰 OLED 전환 추진 — iPad 수요 둔화, iPhone 70M+ 공급 목표 달성 위해', source: 'TheElec', date: '2026.02' }
+        ]
+      },
+      {
+        company: 'LG Display', badgeClass: 'lgdisplay',
+        name: 'Paju P10 10.5G OLED — 파주 (무기한 지연)',
+        lat: 37.825, lng: 126.758,
+        type: '10.5G OLED TV (무기한 지연)', node: '10.5G WOLED TV · 클린룸 일부 완성·설비 미투입',
+        kspm: 0, color: '#880000', letter: '지',
+        isClosed: true, closedNote: '10.5G OLED 무기한 지연 — 2022~23 목표에서 계속 연기, 2025.06 차세대 기술 투자로 활용 검토 중',
+        sourceUrl: 'https://www.thelec.net/news/articleView.html?idxno=1169',
+        overview: 'P10 10.5G OLED TV 라인 무기한 지연 · 클린룸 부분 완성, 설비 미투입 상태 · 2025.06 차세대 OLED 기술 투자 MOU로 부지 활용 전환 검토',
+        intel: [
+          { text: 'LGD P10 10.5G OLED 무기한 지연 공식화(2020.07) — 클린룸 일부 완성됐으나 설비 투자 보류, 현재도 지연 상태 유지', source: 'TheElec', date: '2020.07' },
+          { text: '2025.06 700억원 파주 차세대 OLED 투자 MOU — P10 부지 차세대 기술(Blue PHOLED·투명 OLED 등) 시설로 전환 가능성', source: 'LG Display 공식', date: '2025.06' }
+        ]
+      },
+      {
+        company: 'LG Display', badgeClass: 'lgdisplay',
+        name: 'Gumi P4/P6 — 경북 구미 (OLED 재편)',
+        lat: 36.100, lng: 128.405,
+        type: 'Gen6 중소형 OLED (IT·자동차)', node: 'Gen6 P-OLED · IT·자동차 · E5 장비 파주 이전',
+        kspm: 25000, color: '#D40000', letter: 'G', isOled: true,
+        sourceUrl: 'https://en.wikipedia.org/wiki/LG_Display',
+        overview: '구미 E5 OLED 장비 파주 이전 완료 → IT·자동차 소규모 P-OLED 전담 재편 · Display Week 2025 55인치 투명 P-OLED 자율주행차 콘셉트 공개',
+        intel: [
+          { text: 'LGD 구미 E5 장비 파주 E6-4로 이전 완료(2025.02) — 구미는 자동차·웨어러블 소규모 P-OLED 전담 재편, E5 iPhone OLED 전환도 검토', source: 'TheElec', date: '2025.02' },
+          { text: 'LGD Display Week 2025 — 55인치 투명 P-OLED 자율주행차 콘셉트 공개(천장 슬라이드형 모니터, 투명 OLED 창문)', source: 'SID / Information Display', date: '2025.05' }
+        ]
+      },
+      {
+        company: 'LG Display', badgeClass: 'lgdisplay',
+        name: 'Guangzhou OLED — 중국 광저우 (LCD 매각 완료)',
+        lat: 23.167, lng: 113.518,
+        type: '8.5G WOLED TV (운영) + LCD 매각 완료',
+        node: '8.5G WOLED TV 55"~77" · LCD → TCL CSOT',
+        kspm: 60000, color: '#DD0000', letter: 'O', isOled: true, isChina: true,
+        isSold: true, soldTo: 'TCL CSOT (LCD 80% + 모듈 100%, $1.52B, 2025.03.31 완료)',
+        sourceUrl: 'https://www.oled-info.com/lg-display-officially-sells-its-last-two-lcd-fab-china-tcl-csot',
+        overview: '8.5G WOLED TV 패널 계속 운영 · LCD 80% + 모듈 100% → TCL CSOT 2025.03.31 완료($1.52B) · 매각 대금으로 LG전자 차입금 1조원 조기 상환',
+        intel: [
+          { text: 'LGD 광저우 LCD·모듈 CSOT에 $1.52B 매각 2025.03.31 완료 — 매각 대금으로 LG전자 1조원 차입금 조기 상환, 재무구조 개선', source: 'BusinessKorea', date: '2025.06' },
+          { text: 'LGD 광저우 WOLED 라인 계속 운영 — LCD 철수 후 OLED 전용 팹으로 재정의, OLED TV 공급 거점 유지', source: 'OLED-Info', date: '2024.09' }
+        ]
+      },
+      {
+        company: 'LG Display', badgeClass: 'lgdisplay',
+        name: 'Haiphong 모듈 — 베트남 하이퐁',
+        lat: 20.846, lng: 106.626,
+        type: '모듈 조립 (후공정)', node: 'LCD·OLED 모듈 조립',
+        kspm: 20000, color: '#D40000', letter: 'M',
+        sourceUrl: 'https://en.wikipedia.org/wiki/LG_Display',
+        overview: 'LG Display 베트남 하이퐁 모듈 조립 공장 · TV·IT LCD·OLED 모듈 후공정',
+        intel: [
+          { text: 'LGD 하이퐁 모듈 공장 — LCD·OLED 모듈 후공정, 광저우 LCD 사업 축소 후 베트남 거점 중요도 상승', source: 'LG Display / TrendForce', date: '2024.06' }
+        ]
+      },
+
+      // ★ BOE
+      {
+        company: 'BOE', badgeClass: 'boe',
+        name: 'Beijing B1/B4 — 베이징 이좡',
+        lat: 39.803, lng: 116.535,
+        type: 'LCD (Gen5.5/Gen8.5)', node: 'Gen5.5+Gen8.5 LCD · IT·모니터',
+        kspm: 50000, color: '#0D9488', letter: 'B', isChina: true,
+        sourceUrl: 'https://boe-us.com',
+        overview: 'BOE 베이징 이좡 클러스터 · B1(Gen5.5)·B4(Gen8.5) LCD · IT·모니터 패널 안정 운영',
+        intel: [
+          { text: 'BOE 베이징 B1/B4 LCD — 성숙 공정 안정 운영, IT·모니터용 틈새시장 공략 지속', source: 'BOE 공식', date: '2024.06' }
+        ]
+      },
+      {
+        company: 'BOE', badgeClass: 'boe',
+        name: 'Beijing B20 — Gen6 LTPS LCD + 마이크로디스플레이 R&D',
+        lat: 39.800, lng: 116.545,
+        type: 'Gen6 LTPS LCD + 마이크로디스플레이 R&D', node: 'Gen6 LTPS LCD 45K/월 + Oxide 15K/월 · 2000ppi 마이크로디스플레이 R&D',
+        kspm: 60000, color: '#0D9488', letter: 'N', isChina: true,
+        sourceUrl: 'https://en.ubiresearchnet.com/tag/boe/',
+        overview: 'BOE B20 Gen6 LTPS LCD 팹(45K/월) + Oxide TFT 파일럿(15K/월) · 2024.12 완공 · 2000ppi 고해상도 VR 마이크로디스플레이 R&D 병행 · 칭다오·얼둬쓰 모듈 연계',
+        intel: [
+          { text: 'BOE B20 Gen6 LTPS LCD(45K/월) + Oxide TFT(15K/월) 확인 — 2024.12 완공, LCD 생산 + 2000ppi 마이크로디스플레이 R&D 병행, VR·AR용 Si기반 마이크로디스플레이 생태계 구축 계획', source: 'UBIResearch / minimicroled.com', date: '2025.03' },
+          { text: 'BOE, FPD China 2025에서 B20 기반 고해상도 마이크로디스플레이 로드맵 공개 — Si기반 OLED·LED 기술 생태계 구축 목표, 칭다오·얼둬쓰 모듈 연계', source: 'UBIResearch', date: '2025.03' }
+        ]
+      },
+      {
+        company: 'BOE', badgeClass: 'boe',
+        name: 'Chengdu B7 OLED — 쓰촨 청두',
+        lat: 30.765, lng: 103.905,
+        type: 'Gen6 플렉시블 OLED', node: 'Gen6 LTPO AMOLED · 스마트폰 · iPhone 공급',
+        kspm: 45000, color: '#0D9488', letter: 'O', isOled: true, isChina: true,
+        sourceUrl: 'https://www.oled-info.com/boe-oled',
+        overview: 'BOE 청두 Gen6 OLED · ¥465억 · Apple iPhone 16 패널 공급 · 세계 2위 스마트폰 OLED 공급사',
+        intel: [
+          { text: 'BOE B7 Apple iPhone 16 OLED 공급 지속 — SDC와 양분, 중국 최초 iPhone OLED 대량 공급사 지위 유지', source: 'TrendForce', date: '2024.12' },
+          { text: 'BOE 2026년 CAPEX "대폭" 감축 선언 — B16 8.6G 1·2단계는 계속 추진', source: 'OLED-Info', date: '2026.03' }
+        ]
+      },
+      {
+        company: 'BOE', badgeClass: 'boe',
+        name: 'Chengdu B16 — 8.6G IT OLED (2025.12.30 점등, 2026 하반기 양산)',
+        lat: 30.762, lng: 103.900,
+        type: 'Gen8.6 Flexible IT OLED (건설중)', node: 'Gen8.6 LTPO OLED · IT·태블릿·노트북 · $9B',
+        kspm: 32000, color: '#0D9488', letter: 'N', isOled: true, isChina: true, underConstruction: true,
+        sourceUrl: 'https://www.oled-info.com/boe-lights-its-86-gen-amoled-line-chengdu-ahead-schedule',
+        overview: '$9B(¥630억) 쓰촨성 역대 최대 투자 · 32K/월 · 2025.12 점등(5개월 앞당김) · 2026 하반기 양산 목표 · SDC와 세계 최초 8.6G 양산 경쟁',
+        intel: [
+          { text: 'BOE B16 2025.12.30 공식 점등(5개월 앞당겨짐) — Acer 14인치 노트북용 OLED 패널 시제품 생산, 2026 하반기 양산 목표, 쓰촨성 역대 최대 단일 프로젝트($9B, ¥630억)', source: 'OLED-Info / UBIResearch', date: '2025.12' },
+          { text: 'B16 1단계 장비 발주 완료, 2단계 구매 준비 중 — 2026년 BOE 최대 투자년도, $9B 쓰촨성 역대 최대 단일 산업 프로젝트', source: 'Digitimes / OLED-Info', date: '2025.11' }
+        ]
+      },
+      {
+        company: 'BOE', badgeClass: 'boe',
+        name: 'Chengdu B19 — Gen8.6 Oxide LCD',
+        lat: 30.768, lng: 103.910,
+        type: 'Gen8.6 LCD (IGZO)', node: 'Gen8.6 IGZO LCD · IT·TV',
+        kspm: 60000, color: '#0D9488', letter: 'L', isChina: true,
+        sourceUrl: 'https://boe-us.com',
+        overview: 'BOE 청두 Gen8.6 IGZO LCD — IT·TV 고해상도 패널',
+        intel: [
+          { text: 'BOE B19 Gen8.6 Oxide LCD — IGZO TFT 고해상도 IT·TV 패널, BOE 프리미엄 LCD 라인업', source: 'BOE 공식', date: '2024.06' }
+        ]
+      },
+      {
+        company: 'BOE', badgeClass: 'boe',
+        name: 'Hefei B5/B6 Gen6/8.5 — 안후이 허페이',
+        lat: 31.916, lng: 117.336,
+        type: 'Gen6/8.5 LCD', node: 'Gen6·Gen8.5 LCD · TV·PC·모니터',
+        kspm: 70000, color: '#0D9488', letter: 'B', isChina: true,
+        sourceUrl: 'https://boe-us.com',
+        overview: 'BOE 허페이 LCD 클러스터 · B5(Gen6)+B6(Gen8.5) TV·모니터·노트북 패널',
+        intel: [
+          { text: 'BOE B5/B6 허페이 — Gen6+Gen8.5 복합 LCD 생산, TV·PC·모니터 최대 공급 거점', source: 'BOE 공식', date: '2024.06' }
+        ]
+      },
+      {
+        company: 'BOE', badgeClass: 'boe',
+        name: 'Hefei B9 Gen10.5 — 안후이 허페이',
+        lat: 31.921, lng: 117.346,
+        type: 'Gen10.5 LCD (대형 TV)', node: 'Gen10.5 LCD · 65"~86" UHD·8K TV',
+        kspm: 90000, color: '#0D9488', letter: 'T', isChina: true,
+        sourceUrl: 'https://boe-us.com',
+        overview: 'BOE 허페이 Gen10.5 LCD TV — 65~86인치 UHD·8K TV 전용',
+        intel: [
+          { text: 'BOE B9 Gen10.5 — 65~86인치 UHD·8K TV 패널, BOE 글로벌 TV LCD 점유율 1위 기반', source: 'TrendForce', date: '2024.08' }
+        ]
+      },
+      {
+        company: 'BOE', badgeClass: 'boe',
+        name: 'Wuhan B17 Gen10.5 — 후베이 우한',
+        lat: 30.643, lng: 114.072,
+        type: 'Gen10.5 LCD (TV)', node: 'Gen10.5 LCD · 4K/8K 대형 TV',
+        kspm: 90000, color: '#0D9488', letter: 'T', isChina: true,
+        sourceUrl: 'https://boe-us.com',
+        overview: 'BOE 우한 Gen10.5 LCD TV · ¥460억 · 2019 양산 · 65~100인치 4K/8K TV',
+        intel: [
+          { text: 'BOE B17 Gen10.5 우한 — 2019년 양산, ¥460억 투자, 90K/월 생산능력. BOE·CSOT 세계 Gen10.5 LCD 90%+ 장악', source: 'BOE 공식', date: '2024.06' }
+        ]
+      },
+      {
+        company: 'BOE', badgeClass: 'boe',
+        name: 'Mianyang B11 OLED — 쓰촨 몐양',
+        lat: 31.455, lng: 104.662,
+        type: 'Gen6 플렉시블 OLED', node: 'Gen6 LTPS AMOLED · 스마트폰 · iPhone 공급',
+        kspm: 30000, color: '#0D9488', letter: 'O', isOled: true, isChina: true,
+        sourceUrl: 'https://www.oled-info.com/boe-oled',
+        overview: 'BOE 몐양 Gen6 OLED · Apple iPhone 공급 · 2025.12 품질 이슈 발생 → Apple 오더 일부 SDC로 이전',
+        intel: [
+          { text: 'BOE B11 2025.12 Apple iPhone OLED 품질 이슈 — Apple이 B11 물량 일부를 SDC로 이전, BOE 수율 개선 과제 부각', source: 'OLED-Info', date: '2025.12' },
+          { text: 'BOE-SDC 美 ITC 특허 분쟁 전격 합의(2025.11) — 양사 공동 조사 중단 요청 및 모든 IP 소송 취하, 미국 수입 금지 리스크 완전 해소', source: 'Yicai Global', date: '2025.11' }
+        ]
+      },
+      {
+        company: 'BOE', badgeClass: 'boe',
+        name: 'Chongqing B8 Gen8 — 충칭',
+        lat: 29.833, lng: 106.495,
+        type: 'Gen8 LCD (IT·TV)', node: 'Gen8 a-Si/IGZO LCD',
+        kspm: 50000, color: '#0D9488', letter: 'B', isChina: true,
+        sourceUrl: 'https://boe-us.com',
+        overview: 'BOE 충칭 Gen8 LCD · ¥328억 · IT·TV 패널 안정 양산',
+        intel: [
+          { text: 'BOE B8 Gen8 충칭 — IGZO/a-Si TFT LCD IT·TV 패널 안정 생산', source: 'BOE 공식', date: '2024.06' }
+        ]
+      },
+      {
+        company: 'BOE', badgeClass: 'boe',
+        name: 'Fuzhou B10 OLED — 푸젠 푸저우',
+        lat: 25.688, lng: 119.385,
+        type: 'Gen8.5 플렉시블 OLED', node: 'Gen8.5 AMOLED · IT OLED',
+        kspm: 30000, color: '#0D9488', letter: 'O', isOled: true, isChina: true,
+        sourceUrl: 'https://boe-us.com',
+        overview: 'BOE 푸저우 Gen8.5 OLED · 스마트폰·IT OLED · BOE 4번째 Gen6 AMOLED 라인',
+        intel: [
+          { text: 'BOE B10 Gen8.5 OLED 푸저우 — 스마트폰·IT OLED 양산, 2018.12 발표 BOE 4번째 대형 AMOLED 라인', source: 'OLED-Info', date: '2024.06' }
+        ]
+      },
+      {
+        company: 'BOE', badgeClass: 'boe',
+        name: 'Ordos B2 Gen5.5 — 네이멍구 얼둬쓰',
+        lat: 39.810, lng: 110.035,
+        type: 'Gen5.5 LTPS AMOLED (중국 최초)', node: 'Gen5.5 LTPS/AMOLED · 스마트워치',
+        kspm: 15000, color: '#0D9488', letter: 'B', isOled: true, isChina: true,
+        sourceUrl: 'https://boe-us.com',
+        overview: 'BOE 얼둬쓰 — 중국 최초 AMOLED 팹 · 스마트워치·소형 OLED 전문',
+        intel: [
+          { text: 'BOE B2 얼둬쓰 — 중국 최초 AMOLED 팹(역사적 의미), 스마트워치·소형 웨어러블 전문', source: 'Wikipedia / BOE', date: '2024.06' }
+        ]
+      },
+      {
+        company: 'BOE', badgeClass: 'boe',
+        name: 'Chongqing B12 OLED — 충칭',
+        lat: 29.830, lng: 106.500,
+        type: 'Gen6 플렉시블 OLED', node: 'Gen6 Flexible AMOLED · 스마트폰',
+        kspm: 48000, color: '#0D9488', letter: 'O', isOled: true, isChina: true,
+        sourceUrl: 'https://www.thelec.net/news/articleView.html?idxno=3558',
+        overview: 'BOE의 세 번째 Gen6 플렉시블 OLED 전용 팹(B7, B11에 이은 3대 핵심 라인). 약 465억 위안($6.7B)이 투자됨.',
+        intel: [
+          { text: '3단계에 걸쳐 완공되었으며, 월 48K 생산 능력으로 BOE가 Apple 및 주요 스마트폰 제조사에 OLED 패널을 공급하는 핵심 전초기지 역할 수행', source: 'TheElec', date: '2021.11' }
+        ]
+      },
+
+      // ★ TCL CSOT
+      {
+        company: 'TCL CSOT', badgeClass: 'csot',
+        name: 'Shenzhen T1/T2 Gen8.5 — 광둥 선전',
+        lat: 22.755, lng: 113.935,
+        type: 'Gen8.5 LCD (TV·모니터)', node: 'Gen8.5 LCD · TV·모니터 · Sony 파트너십',
+        kspm: 170000, color: '#D97706', letter: 'C', isChina: true,
+        sourceUrl: 'https://en.tclcsot.com',
+        overview: 'TCL CSOT 최초 팹 · T1+T2 Gen8.5 LCD TV·모니터 · LGD 광저우 인수 후 글로벌 TV LCD 점유율 약 22.9%~25.2% (TrendForce 등 산정 기준 상이)',
+        intel: [
+          { text: 'CSOT, Sony와 2026.01 전략적 파트너십 체결 — Sony 홈엔터테인먼트 제조·운영 분야 협력, LGD 광저우 인수 후 글로벌 LCD 점유율 약 22.9%(TrendForce 면적 기준)로 세계 2위 도약', source: 'Caixin / rAVe PUBS', date: '2026.01' }
+        ]
+      },
+      {
+        company: 'TCL CSOT', badgeClass: 'csot',
+        name: 'Shenzhen T6/T7 Gen11 — 광둥 선전',
+        lat: 22.748, lng: 113.935,
+        type: 'Gen11 LCD (초대형 TV)', node: 'Gen11 LCD · 85"~115" 8K TV',
+        kspm: 110000, color: '#D97706', letter: 'G', isChina: true,
+        sourceUrl: 'https://en.tclcsot.com',
+        overview: 'CSOT Gen11 초대형 LCD TV · T6(110K/월)+T7(155K/월) · Lenovo 롤러블 AMOLED 공급사 확인(CES 2026)',
+        intel: [
+          { text: 'CSOT, CES 2026에서 Lenovo Legion 조 조절 분위기Rollable 콘셉트 노트북에 롤러블 AMOLED 공급사 확인 — 16인치→21인치→24인치 확장', source: 'OLED-Info', date: '2026.01' }
+        ]
+      },
+      {
+        company: 'TCL CSOT', badgeClass: 'csot',
+        name: 'Wuhan T4 — Gen5.5 IJP OLED (양산 중)',
+        lat: 30.485, lng: 114.535,
+        type: 'Gen5.5 잉크젯 OLED (2024.11 양산 개시)', node: 'Gen5.5 IJP OLED · 모니터·스마트폰·자동차',
+        kspm: 30000, color: '#D97706', letter: 'O', isOled: true, isChina: true,
+        sourceUrl: 'https://www.oled-info.com/csot-oled',
+        overview: '세계 최초 잉크젯 OLED 양산 팹 · 2024.11 대량생산 개시 · 21.6인치 4K 모니터 패널 출하 · MWC 2026 최신 IJP OLED 시연',
+        intel: [
+          { text: 'CSOT T4 우한 Gen5.5 잉크젯 OLED 2024.11 세계 최초 IJP OLED 대량생산 개시 — 21.6인치 4K 모니터 패널 출하 시작', source: 'OLED-Info / Gizmochina', date: '2024.11' },
+          { text: 'CSOT MWC 2026 IJP OLED 시연 — 28인치 트라이폴드 모니터(두께 4.48mm), 14인치 노트북(77g), 5.65인치 390PPI 스마트폰 패널 공개', source: 'OLED-Info', date: '2026.03' }
+        ]
+      },
+      {
+        company: 'TCL CSOT', badgeClass: 'csot',
+        name: 'Suzhou Gen8.5 — 장쑤 쑤저우',
+        lat: 31.328, lng: 120.765,
+        type: 'Gen8.5 LCD (삼성 인수)', node: 'Gen8.5 LCD · TV·IT',
+        kspm: 80000, color: '#D97706', letter: 'S', isChina: true,
+        sourceUrl: 'https://en.tclcsot.com',
+        overview: '2020년 삼성디스플레이 쑤저우 공장 인수 · TV·IT LCD 안정 생산',
+        intel: [
+          { text: 'CSOT 쑤저우 Gen8.5 — 2020 삼성디스플레이 인수, TV·IT LCD 안정 양산', source: 'TrendForce', date: '2024.06' }
+        ]
+      },
+      {
+        company: 'TCL CSOT', badgeClass: 'csot',
+        name: 'Guangzhou T8 — 8.6G IJP OLED (건설중)',
+        lat: 23.165, lng: 113.520,
+        type: '8.6G 잉크젯 OLED (건설중)', node: '8.6G IJP OLED · IT·태블릿·노트북 · $4.15B',
+        kspm: 22500, color: '#D97706', letter: 'P', isOled: true, isChina: true, underConstruction: true,
+        sourceUrl: 'https://www.prnewswire.com/apac/news-releases/tcl-csot-breaks-new-ground-in-display-tech-with-worlds-first-8-6-gen-ijp-oled-plant-302591189.html',
+        overview: '세계 최초 8.6G 잉크젯 OLED 팹 · $4.15B · 2025.10.21 착공 · 22.5K/월 · 설비 2026 후반 · 양산 2027',
+        intel: [
+          { text: 'CSOT T8 8.6G IJP OLED 2025.10.21 착공 — $4.15B, 22.5K/월. SDC·BOE보다 늦지만 FMM 없이 대면적 RGB OLED 가능', source: 'TCL CSOT 공식 / PRNewswire', date: '2025.10' }
+        ]
+      },
+      {
+        company: 'TCL CSOT', badgeClass: 'csot',
+        name: 'Guangzhou LGD LCD 인수 — 광저우',
+        lat: 23.167, lng: 113.518,
+        type: 'Gen8.5 LCD (LGD 인수 완료)', node: 'Gen8.5 IPS LCD TV · 55"+ · 2025.03 이전',
+        kspm: 180000, color: '#E08000', letter: 'L', isChina: true,
+        sourceUrl: 'https://www.oled-info.com/lg-display-officially-sells-its-last-two-lcd-fab-china-tcl-csot',
+        overview: '2025.03.31 LGD 광저우 Gen8.5 LCD 80% + 모듈 100% 인수 완료 · 월 18만장 TV 패널 · CSOT 점유율 22.9% 이상 확보',
+        intel: [
+          { text: 'CSOT 2025.03.31 LGD 광저우 LCD 인수 완료($1.52B) — Gen8.5 LCD 80% + 모듈 100%, CSOT 글로벌 LCD TV 점유율 약 22.9%~25.2%(산정 기준별 상이)', source: 'OLED-Info / TrendForce', date: '2025.04' }
+        ]
+      },
+      {
+        company: 'TCL CSOT', badgeClass: 'csot',
+        name: 'Guangzhou T9 — 광저우 (IT LCD)',
+        lat: 23.165, lng: 113.535,
+        type: 'Gen8.6 LCD (Oxide)', node: 'Gen8.6 Oxide LCD · IT·모니터·의료',
+        kspm: 180000, color: '#D97706', letter: 'C', isChina: true,
+        sourceUrl: 'https://en.tclcsot.com',
+        overview: 'CSOT의 차세대 IT용 디스플레이 주력 공장. 고해상도 모바일, 노트북, 모니터 패널 시장을 장악하기 위해 설립된 대규모 Oxide 기반 라인.',
+        intel: [
+          { text: 'Gen8.6 산화물(Oxide) 기술을 적용해 중형 IT 기기 및 의료용 패널의 주도권을 쥐기 위한 CSOT의 초대형 인프라', source: 'TCL 공식', date: '2023.08' }
+        ]
+      },
+
+      // ★ INNOLUX
+      {
+        company: 'Innolux', badgeClass: 'innolux',
+        name: 'Tainan FAB1 — Gen3.5 (PLP 전환 검토)',
+        lat: 23.102, lng: 120.273,
+        type: 'Gen3.5 LCD → 반도체 후공정 전환 검토', node: 'Gen3.5 · 소형 패널 → Fan-Out PLP',
+        kspm: 8000, color: '#7C3AED', letter: '1',
+        sourceUrl: 'https://focustaiwan.tw/business/202507120007',
+        overview: 'Innolux 타이난 가장 오래된 Gen3.5 팹 · 23년부터 디스플레이 웨이퍼팹(PLP) 리라인 전환 검토 · 표준패키징/컨패키징용(PLP) 승인 진행 중',
+        intel: [
+          { text: 'Innolux FAB1 Gen3.5 — 23년부터 디스플레이 웨이퍼팹(PLP) 반도체 후공정 전환 검토, FO-PLP 공정 인증 진행 중', source: 'TrendForce', date: '2024.07' }
+        ]
+      },
+      {
+        company: 'Innolux', badgeClass: 'innolux',
+        name: 'Tainan FAB2 — Gen4 (운영 중)',
+        lat: 23.104, lng: 120.276,
+        type: 'Gen4 LCD (소형 IT)', node: 'Gen4 · 소형 모니터·IT 패널',
+        kspm: 12000, color: '#7C3AED', letter: '2',
+        sourceUrl: 'https://focustaiwan.tw/business/202507120007',
+        overview: 'Innolux 타이난 Gen4 팹 · 소형 IT·모니터 패널 양산 · 운영 지속 중',
+        intel: [
+          { text: 'Innolux FAB2 Gen4 — 소형 IT 패널 생산 지속, 중국경쟁 심화에도 특수 품목 위주 운영 유지', source: 'TrendForce', date: '2024.08' }
+        ]
+      },
+      {
+        company: 'Innolux', badgeClass: 'innolux',
+        name: 'Tainan FAB3 — Gen5 (운영 지속)',
+        lat: 23.106, lng: 120.279,
+        type: 'Gen5 LCD (모니터)', node: 'Gen5 · 모니터 패널 주력',
+        kspm: 20000, color: '#7C3AED', letter: '3',
+        sourceUrl: 'https://focustaiwan.tw/business/202507120007',
+        overview: 'Innolux 타이난 Gen5 팹 · 모니터 패널 양산 · 25년 이후 운영 가능성 유지',
+        intel: [
+          { text: 'Innolux FAB3 Gen5 — 모니터 패널 생산 지속, 25년 이후 운영 계속 전망, 중소형 IT 수요 대응', source: 'Focus Taiwan (CNA)', date: '2025.07' }
+        ]
+      },
+      {
+        company: 'Innolux', badgeClass: 'innolux',
+        name: 'Tainan FAB4 — TSMC에 매각 (2024.08)',
+        lat: 23.108, lng: 120.282,
+        type: 'Gen5.5 LCD → TSMC CoWoS 패키징 전환', node: 'Gen5.5 LCD (폐쇄) → CoWoS/FO-PLP',
+        kspm: 0, color: '#7C3AED', letter: '매',
+        isSold: true, soldTo: 'TSMC (약 7,200억원, NT$171.4억) — CoWoS/FO-PLP 첨단 패키징 전환',
+        sourceUrl: 'https://www.trendforce.com/presscenter/news/20240816-12257.html',
+        overview: '2024.08.15 TSMC에 NT$171.4억(약 $531M/7,200억원)에 매각 · AI 서버 CoWoS 및 FO-PLP 첨단 패키징 팹으로 전환 예정',
+        intel: [
+          { text: 'TSMC 2024.08.15 Innolux 타이난 FAB4(Gen5.5) NT$171.4억에 인수 — AI 서버 CoWoS 패키징 병목 해소, TSMC 최종 인수', source: 'TrendForce / Taipei Times', date: '2024.08' },
+          { text: 'FAB4는 Gen5.5 노트북·중소형 LCD 전용, 2023년 말 생산 종료 — 중국 팹과의 가격 경쟁 패배로 조기 폐쇄 결정', source: 'TrendForce', date: '2024.08' }
+        ]
+      },
+      {
+        company: 'Innolux', badgeClass: 'innolux',
+        name: 'Tainan FAB5 — Gen5 (매각 추진 중)',
+        lat: 23.110, lng: 120.285,
+        type: 'Gen5 LCD (매각 검토 중)', node: 'Gen5 LCD → 패키징/반도체 전환 예정',
+        kspm: 0, color: '#7C3AED', letter: '매',
+        isSold: true, soldTo: '매각 추진 중 — ASE 등 첨단 패키징(OSAT) 업체 위주',
+        sourceUrl: 'https://focustaiwan.tw/business/202507120007',
+        overview: 'Innolux 타이난 FAB5 Gen5 — 매각 추진 중, 매각처 확정 전 · ASE 등 주요 OSAT 업체들로 첨단 패키징용 매수 후보군 압축(Micron 제외)',
+        intel: [
+          { text: 'Innolux FAB5 Gen5 매각 추진 중 — Micron은 매수 후보에서 제외되었으며, ASE 등 대만 주요 OSAT(첨단 패키징) 업체 위주로 매각 협상 진행 중', source: 'TrendForce', date: '2026.02' }
+        ]
+      },
+      {
+        company: 'Innolux', badgeClass: 'innolux',
+        name: 'Tainan FAB6 — Gen6 (TV·모니터)',
+        lat: 23.112, lng: 120.288,
+        type: 'Gen6 LCD (TV·모니터)', node: 'Gen6 · TV·모니터 패널 양산',
+        kspm: 28000, color: '#7C3AED', letter: '6',
+        sourceUrl: 'https://focustaiwan.tw/business/202507120007',
+        overview: 'Innolux 타이난 Gen6 팹 · TV 및 모니터 패널 양산 · 계속 운영 중',
+        intel: [
+          { text: 'Innolux FAB6 Gen6 — TV·모니터 패널 주력 생산, 가동률 정상 수준 유지', source: 'TrendForce', date: '2024.08' }
+        ]
+      },
+      {
+        company: 'Innolux', badgeClass: 'innolux',
+        name: 'Tainan FAB7 — Gen7.5 (TV·모니터)',
+        lat: 23.114, lng: 120.291,
+        type: 'Gen7.5 LCD (TV·모니터)', node: 'Gen7.5 · TV·모니터 대형 패널',
+        kspm: 45000, color: '#7C3AED', letter: '7',
+        sourceUrl: 'https://focustaiwan.tw/business/202507120007',
+        overview: 'Innolux 타이난 Gen7.5 팹 · TV·모니터 대형 패널 생산 · 계속 운영',
+        intel: [
+          { text: 'Innolux FAB7 Gen7.5 — TV·모니터 패널 양산, 중대형 IT 수요 대응', source: 'TrendForce', date: '2024.08' }
+        ]
+      },
+      {
+        company: 'Innolux', badgeClass: 'innolux',
+        name: 'Tainan FAB8a — Gen8.5 (TV·모니터)',
+        lat: 23.116, lng: 120.294,
+        type: 'Gen8.5 LCD (TV·모니터)', node: 'Gen8.5 · 대형 TV 패널',
+        kspm: 60000, color: '#7C3AED', letter: '8',
+        sourceUrl: 'https://focustaiwan.tw/business/202507120007',
+        overview: 'Innolux 타이난 Gen8.5 팹 · 대형 TV·모니터 패널 생산 주력 · 계속 운영',
+        intel: [
+          { text: 'Innolux FAB8a Gen8.5 — 대형 TV 패널 양산 주력, 고부가가치 IPS/VA 패널 라인업', source: 'TrendForce', date: '2024.08' }
+        ]
+      },
+      {
+        company: 'Innolux', badgeClass: 'innolux',
+        name: 'Tainan FAB8b — Gen8.6 (TV)',
+        lat: 23.118, lng: 120.297,
+        type: 'Gen8.6 LCD (TV)', node: 'Gen8.6 Oxide · TV 패널',
+        kspm: 55000, color: '#7C3AED', letter: '8',
+        sourceUrl: 'https://focustaiwan.tw/business/202507120007',
+        overview: 'Innolux 타이난 Gen8.6 팹 · TV 패널 생산 · Oxide TFT 공정 적용',
+        intel: [
+          { text: 'Innolux FAB8b Gen8.6 — TV용 Oxide TFT LCD 패널 양산, 고해상 대형 TV 패널 생산', source: 'TrendForce', date: '2024.08' }
+        ]
+      },
+      {
+        company: 'Innolux', badgeClass: 'innolux',
+        name: 'Tainan 모듈공장 — ChipMOS에 매각 (2026.03)',
+        lat: 23.100, lng: 120.270,
+        type: 'LCD 모듈 조립 → 반도체 패키징 전환', node: 'LCD 모듈 조립 → 칩 테스트·패키징',
+        kspm: 0, color: '#7C3AED', letter: '매',
+        isSold: true, soldTo: 'ChipMOS Technologies (NT$8.8억, $27.65M) — AI 메모리·로직 칩 테스트·패키징',
+        sourceUrl: 'https://www.taipeitimes.com/News/biz/archives/2026/03/11/2003853595',
+        overview: '2026.03.11 ChipMOS Technologies에 NT$8.8억($27.65M) 매각 결정 — AI 메모리 수퍼사이클 대응 칩 테스트·패키징 시설로 전환',
+        intel: [
+          { text: 'Innolux 2026.03.11 타이난 패널 모듈 조립 시설을 ChipMOS에 NT$8.8억($27.65M)에 매각 — ChipMOS는 AI 메모리 CAPA 대폭 확대 목적', source: 'Taipei Times', date: '2026.03' }
+        ]
+      },
+      {
+        company: 'Innolux', badgeClass: 'innolux',
+        name: 'Zhunan T1 — Gen5 (운영 중)',
+        lat: 24.712, lng: 120.908,
+        type: 'Gen5 LCD (소형 IT)', node: 'Gen5 · 소형 IT·모니터',
+        kspm: 18000, color: '#7C3AED', letter: 'T',
+        sourceUrl: 'https://en.wikipedia.org/wiki/InnoLux_Corporation',
+        overview: 'Innolux 주난 Gen5 팹 · 소형 IT 패널 생산 · 매각처 없음, 자체 운영 지속',
+        intel: [
+          { text: 'Innolux T1 Gen5 — 매각 계획 없음, 소형 IT·모니터 패널 자체 운영 지속', source: 'TrendForce', date: '2024.07' }
+        ]
+      },
+      {
+        company: 'Innolux', badgeClass: 'innolux',
+        name: 'Zhunan T2 — Gen6 (모니터·연구)',
+        lat: 24.715, lng: 120.910,
+        type: 'Gen6 LCD (모니터·연구용)', node: 'Gen6 · 모니터·교육·연구',
+        kspm: 25000, color: '#7C3AED', letter: 'T',
+        sourceUrl: 'https://en.wikipedia.org/wiki/InnoLux_Corporation',
+        overview: 'Innolux 주난 Gen6 팹 · 모니터·교육용 디스플레이 생산 · 자체 운영',
+        intel: [
+          { text: 'Innolux T2 Gen6 — 모니터·교육용 디스플레이 생산, 연구 개발 병행', source: 'TrendForce', date: '2024.07' }
+        ]
+      },
+      {
+        company: 'Innolux', badgeClass: 'innolux',
+        name: 'Zhunan T3 — Gen3.5 (소형 특수)',
+        lat: 24.718, lng: 120.912,
+        type: 'Gen3.5 LCD (소형 특수)', node: 'Gen3.5 · FOPLP·X선 센서 전환',
+        kspm: 10000, color: '#7C3AED', letter: 'T',
+        sourceUrl: 'https://en.wikipedia.org/wiki/InnoLux_Corporation',
+        overview: 'Innolux 주난 Gen3.5 팹 · 소형 특수 패널 생산 · FOPLP 반도체 후공정·X선 센서로 전환 추진',
+        intel: [
+          { text: 'Innolux T3 Gen3.5 — FOPLP 반도체 후공정·X선 센서 생산으로 일부 전환 추진, 고부가가치 비디스플레이 사업 강화', source: 'TrendForce', date: '2024.07' }
+        ]
+      },
+      {
+        company: 'Innolux', badgeClass: 'innolux',
+        name: 'Kaohsiung T6 — Gen6',
+        lat: 22.842, lng: 120.258,
+        type: 'Gen6 LCD (모니터·TV)', node: 'Gen6 · 모니터·TV 패널',
+        kspm: 22000, color: '#7C3AED', letter: 'T',
+        sourceUrl: 'https://en.wikipedia.org/wiki/InnoLux_Corporation',
+        overview: 'Innolux 가오슝 Gen6 팹 · 모니터·TV 패널 생산 · 남부 거점',
+        intel: [
+          { text: 'Innolux T6 Gen6 가오슝 — 모니터·TV 패널 생산, 남부 대만 생산 거점', source: 'TrendForce', date: '2024.07' }
+        ]
+      },
+
+      // ★ AUO
+      {
+        company: 'AUO', badgeClass: 'auo',
+        name: 'Hsinchu L3C — Gen3.5 (PTI에 매각, 2025)',
+        lat: 24.782, lng: 121.011,
+        type: 'Gen3.5 LCD → FO-PLP 패키징 전환', node: 'Gen3.5 LCD (매각) → Fan-Out PLP',
+        kspm: 0, color: '#0891B2', letter: '매',
+        isSold: true, soldTo: '*PTI(Powertech Technology Inc.) (약 3,200억원) — FO-PLP 패키징 전환',
+        sourceUrl: 'https://www.auo.com',
+        overview: '2025년 *PTI(Powertech Technology Inc.)에 약 3,200억원(NT$68.98억)에 매각 · 글로벌 패키지용(FO-PLP) 반도체 후공정으로 전환',
+        intel: [
+          { text: 'AUO L3C Gen3.5 — 2025년 *PTI(Powertech Technology Inc.)에 약 3,200억원(NT$68.98억) 매각, 글로벌패키지용 FO-PLP 반도체 패키징 팹으로 전환', source: 'AUO / TrendForce', date: '2025.01' }
+        ]
+      },
+      {
+        company: 'AUO', badgeClass: 'auo',
+        name: 'Hsinchu L3D — Gen3.5 본사 인근',
+        lat: 24.780, lng: 121.009,
+        type: 'Gen3.5 LCD (특수·산업)', node: 'Gen3.5 · 산업·의료 특수 패널',
+        kspm: 8000, color: '#0891B2', letter: 'L',
+        sourceUrl: 'https://www.auo.com',
+        overview: 'AUO 신주 과학단지 Gen3.5 팹 · 산업·의료·항공용 특수 패널 생산 · 본사 MicroLED·OLED R&D 연계',
+        intel: [
+          { text: 'AUO L3D Gen3.5 — 신주과학단지 본사 인접, 산업·의료·항공 특수 패널 생산, 2024 CES 투명 MicroLED 대형 디스플레이 공개', source: 'AUO Corporation', date: '2024.01' }
+        ]
+      },
+      {
+        company: 'AUO', badgeClass: 'auo',
+        name: 'Hsinchu L4A — Gen4 (R&D·특수)',
+        lat: 24.778, lng: 121.007,
+        type: 'Gen4 LCD (R&D·특수)', node: 'Gen4 · MicroLED R&D · 특수 패널',
+        kspm: 10000, color: '#0891B2', letter: 'L',
+        sourceUrl: 'https://www.auo.com',
+        overview: 'AUO 신주 Gen4 팹 · MicroLED 연구개발 · 자동차·스마트리테일 특수 패널',
+        intel: [
+          { text: 'AUO L4A Gen4 — MicroLED 연구개발 병행, 자동차·헬스케어·스마트리테일 수직 솔루션 사업 본부 연계', source: 'AUO Corporation', date: '2024.01' }
+        ]
+      },
+      {
+        company: 'AUO', badgeClass: 'auo',
+        name: 'Longtan L5A — Gen5 (MicroLED 전환·Shutdown)',
+        lat: 24.845, lng: 121.195,
+        type: 'Gen5 LCD → MicroLED 용도 전환·Shutdown', node: 'Gen5 IT → MicroLED 생산 전환',
+        kspm: 0, color: '#0891B2', letter: '전',
+        isClosed: true,
+        closedNote: '2025년 LCD 생산 Shutdown — MicroLED 생산 라인으로 용도 전환 중',
+        sourceUrl: 'https://www.microled-info.com/auo',
+        overview: '2025년 IT 패널 LCD 생산 종료(Shutdown) · MicroLED 생산 용도 전환 진행 중 · PlayNitride 협력 6인치 라인 연계',
+        intel: [
+          { text: 'AUO L5A Gen5 — 2025년 LCD IT 패널 생산 Shutdown, MicroLED 전용 생산 라인으로 용도 전환, PlayNitride 협력 MicroLED 양산 연계', source: 'MicroLED-Info / AUO', date: '2025.01' },
+          { text: 'AUO 2023.11 PlayNitride와 룽탄 공장 내 $2,150만 6인치 MicroLED 생산 라인 설치 협약 체결 — Garmin Fenix 8 Pro 세계 최초 MicroLED 스마트워치 패널 2025.09 양산', source: 'MicroLED-Info', date: '2025.09' }
+        ]
+      },
+      {
+        company: 'AUO', badgeClass: 'auo',
+        name: 'Longtan L5B — Gen5 (IT 패널)',
+        lat: 24.847, lng: 121.197,
+        type: 'Gen5 LCD (IT·모니터)', node: 'Gen5 · 노트북·모니터 IT',
+        kspm: 22000, color: '#0891B2', letter: 'L',
+        sourceUrl: 'https://www.auo.com',
+        overview: 'AUO 룽탄 Gen5 팹 · IT·노트북·모니터 패널 생산 · 계속 운영',
+        intel: [
+          { text: 'AUO L5B Gen5 룽탄 — IT·노트북·모니터 패널 생산, 산업·차량 고부가 제품 확대 전략 추진', source: 'AUO Corporation', date: '2024.08' }
+        ]
+      },
+      {
+        company: 'AUO', badgeClass: 'auo',
+        name: 'Longtan L5D — Gen5 (IT·산업)',
+        lat: 24.849, lng: 121.199,
+        type: 'Gen5 LCD (IT·산업)', node: 'Gen5 · IT·산업 특수 패널',
+        kspm: 20000, color: '#0891B2', letter: 'L',
+        sourceUrl: 'https://www.auo.com',
+        overview: 'AUO 룽탄 Gen5 팹 · IT·산업용 패널 생산 · 차량·의료 다변화 중',
+        intel: [
+          { text: 'AUO L5D Gen5 룽탄 — 산업용·차량용 패널 생산 다변화, AUO 2027년 버티컬 솔루션 매출 50%+ 목표 대응', source: 'Omdia', date: '2025.08' }
+        ]
+      },
+      {
+        company: 'AUO', badgeClass: 'auo',
+        name: 'Longtan L6B — Gen6 (TV·모니터)',
+        lat: 24.851, lng: 121.201,
+        type: 'Gen6 LCD (TV·모니터)', node: 'Gen6 · TV·모니터 중대형',
+        kspm: 35000, color: '#0891B2', letter: 'L',
+        sourceUrl: 'https://www.auo.com',
+        overview: 'AUO 룽탄 Gen6 팹 · TV·모니터 중대형 패널 주력 생산 · 계속 운영',
+        intel: [
+          { text: 'AUO L6B Gen6 룽탄 — TV·모니터 중대형 패널 생산 주력, 하이엔드 게이밍 모니터 패널 수요 대응', source: 'TFTCentral', date: '2024.03' }
+        ]
+      },
+      {
+        company: 'AUO', badgeClass: 'auo',
+        name: 'Tainan C4A/H10 — Gen4.5 C/F',
+        lat: 23.115, lng: 120.283,
+        type: 'Gen4.5 Color Filter (C/F)', node: 'Gen4.5 C/F · IT·TV 컬러필터',
+        kspm: 15000, color: '#0891B2', letter: 'C',
+        sourceUrl: 'https://www.auo.com',
+        overview: 'AUO 타이난 Gen4.5 컬러필터(C/F) 팹 · IT·TV 패널용 C/F 부품 생산 · 자체 패널 팹 공급',
+        intel: [
+          { text: 'AUO C4A(H10) Gen4.5 — 컬러필터 생산, IT·TV 패널 내부 공급 · 추가 생산 라인 운영', source: 'AUO Corporation', date: '2024.08' }
+        ]
+      },
+      {
+        company: 'AUO', badgeClass: 'auo',
+        name: 'Tainan C5D/H11 — Gen5 C/F (IT)',
+        lat: 23.117, lng: 120.285,
+        type: 'Gen5 Color Filter (C/F · IT)', node: 'Gen5 C/F · IT 패널용 컬러필터',
+        kspm: 18000, color: '#0891B2', letter: 'C',
+        sourceUrl: 'https://www.auo.com',
+        overview: 'AUO 타이난 Gen5 컬러필터(C/F) 팹 · IT 패널용 컬러필터 전문 생산',
+        intel: [
+          { text: 'AUO C5D(H11) Gen5 C/F — IT 패널용 컬러필터 전문 생산, 고부가가치 고해상도 패널 대응', source: 'AUO Corporation', date: '2024.08' }
+        ]
+      },
+      {
+        company: 'AUO', badgeClass: 'auo',
+        name: 'Tainan C6C/H12 — Gen6 C/F (IT)',
+        lat: 23.119, lng: 120.287,
+        type: 'Gen6 Color Filter (C/F · IT)', node: 'Gen6 C/F · IT 패널용 대형 컬러필터',
+        kspm: 22000, color: '#0891B2', letter: 'C',
+        sourceUrl: 'https://www.auo.com',
+        overview: 'AUO 타이난 Gen6 컬러필터(C/F) 팹 · IT·TV 패널용 대형 컬러필터 생산',
+        intel: [
+          { text: 'AUO C6C(H12) Gen6 C/F — IT·TV 패널용 대형 컬러필터 생산, 고해상도·고색재현성 C/F 기술 적용', source: 'AUO Corporation', date: '2024.08' }
+        ]
+      },
+      {
+        company: 'AUO', badgeClass: 'auo',
+        name: 'Tainan C5E/H14 — Gen5 (Micron에 매각, 2024)',
+        lat: 23.121, lng: 120.289,
+        type: 'Gen5 LCD → Micron HBM 패키징 전환', node: 'Gen5 LCD (매각) → HBM 패키징',
+        kspm: 0, color: '#0891B2', letter: '매',
+        isSold: true, soldTo: 'Micron Technology (약 3,450억원, NT$74억) — HBM 글로벌패키징 전환',
+        sourceUrl: 'https://www.ledinside.com/news/2024/9/2024_09_02_03',
+        overview: '2024.08.28 Micron Taiwan에 약 3,450억원(NT$74억)에 매각 · HBM 고대역폭메모리 글로벌 패키징(HBM 패키징) 시설로 전환',
+        intel: [
+          { text: 'AUO C5E(H14) Gen5 — 2024.08.28 Micron Taiwan에 NT$74억(약 3,450억원) 매각, HBM 글로벌패키지용 패키징 팹으로 전환 (총 NT$81억 매각 중 타이난 주요 공장)', source: 'LEDinside / CNA', date: '2024.09' },
+          { text: 'Micron Taiwan은 HBM4 생산 확대를 위해 인수 공장을 HBM 패키징 시설로 전환 — AI 메모리 수퍼사이클 대응', source: 'LEDinside', date: '2024.09' }
+        ]
+      },
+      {
+        company: 'AUO', badgeClass: 'auo',
+        name: 'Taichung L5C — Gen5 (TV·IT)',
+        lat: 24.215, lng: 120.695,
+        type: 'Gen5 LCD (TV·IT)', node: 'Gen5 · TV·IT 패널',
+        kspm: 20000, color: '#0891B2', letter: 'L',
+        sourceUrl: 'https://www.auo.com',
+        overview: 'AUO 타이중 Gen5 팹 · TV·IT 패널 생산 · 계속 운영',
+        intel: [
+          { text: 'AUO L5C Gen5 타이중 — TV·IT 패널 생산 지속, 고부가가치 특수 패널 전환 추진 중', source: 'AUO Corporation', date: '2024.08' }
+        ]
+      },
+      {
+        company: 'AUO', badgeClass: 'auo',
+        name: 'Taichung L6A — Gen6 (TV·IT)',
+        lat: 24.218, lng: 120.698,
+        type: 'Gen6 LCD (TV·IT)', node: 'Gen6 · TV·모니터 중대형',
+        kspm: 35000, color: '#0891B2', letter: 'L',
+        sourceUrl: 'https://www.auo.com',
+        overview: 'AUO 타이중 Gen6 팹 · TV·IT 패널 중대형 생산 · 계속 운영',
+        intel: [
+          { text: 'AUO L6A Gen6 타이중 — TV·IT 중대형 패널 양산 주력', source: 'AUO Corporation', date: '2024.08' }
+        ]
+      },
+      {
+        company: 'AUO', badgeClass: 'auo',
+        name: 'Taichung L7A — Gen7.5 (TV·IT)',
+        lat: 24.221, lng: 120.701,
+        type: 'Gen7.5 LCD (TV·IT)', node: 'Gen7.5 · 대형 TV·하이엔드 모니터',
+        kspm: 60000, color: '#0891B2', letter: 'L',
+        sourceUrl: 'https://tftcentral.co.uk/news/exciting-new-monitor-panels-being-developed-in-2024-au-optronics-edition',
+        overview: 'AUO 타이중 Gen7.5 팹 · 대형 TV·하이엔드 모니터 패널 · 4K IPS Black/ART 코팅',
+        intel: [
+          { text: 'AUO L7A Gen7.5 타이중 — 27인치 4K IPS Black(2000:1)·240Hz QHD VA·34인치 울트라와이드 신규 패널 양산, 하이엔드 게이밍 모니터 주도', source: 'TFTCentral', date: '2024.03' }
+        ]
+      },
+      {
+        company: 'AUO', badgeClass: 'auo',
+        name: 'Taichung L7B — Gen7.5 (TV·IT)',
+        lat: 24.224, lng: 120.704,
+        type: 'Gen7.5 LCD (TV·IT)', node: 'Gen7.5 · TV·IT 대형 패널',
+        kspm: 55000, color: '#0891B2', letter: 'L',
+        sourceUrl: 'https://www.auo.com',
+        overview: 'AUO 타이중 Gen7.5 팹 · TV·IT 대형 패널 생산 · 계속 운영',
+        intel: [
+          { text: 'AUO L7B Gen7.5 타이중 — TV·IT 대형 패널 양산, 하이엔드 IT 수요 대응', source: 'AUO Corporation', date: '2024.08' }
+        ]
+      },
+      {
+        company: 'AUO', badgeClass: 'auo',
+        name: 'Taichung L8A — Gen8.5 (TV·IT)',
+        lat: 24.227, lng: 120.707,
+        type: 'Gen8.5 LCD (TV·IT)', node: 'Gen8.5 · 초대형 TV 패널',
+        kspm: 70000, color: '#0891B2', letter: 'L',
+        sourceUrl: 'https://www.auo.com',
+        overview: 'AUO 타이중 Gen8.5 팹 · 초대형 TV 패널 주력 생산 · 계속 운영',
+        intel: [
+          { text: 'AUO L8A Gen8.5 타이중 — 초대형 TV 패널 양산 주력, AUO 2027년 버티컬 솔루션 50%+ 목표 병행 추진', source: 'Omdia', date: '2025.08' }
+        ]
+      },
+      {
+        company: 'AUO', badgeClass: 'auo',
+        name: 'Taichung L8B — Gen8.5 (TV·IT)',
+        lat: 24.230, lng: 120.710,
+        type: 'Gen8.5 LCD (TV·IT)', node: 'Gen8.5 · 대형 TV·IT 패널',
+        kspm: 65000, color: '#0891B2', letter: 'L',
+        sourceUrl: 'https://www.auo.com',
+        overview: 'AUO 타이중 Gen8.5 팹 (2) · 대형 TV·IT 패널 생산 · 계속 운영',
+        intel: [
+          { text: 'AUO L8B Gen8.5 타이중 — 대형 TV·IT 패널 양산, LCD Fab 별도로 AUO 자회사 24년 Micron에 약 300억원에 매각 (HBM패키지용), 총 NT$81억 매각의 나머지 부분', source: 'LEDinside / CNA', date: '2024.09' }
+        ]
+      },
+
+      // ★ TSMC
+      {
+        company: 'TSMC', badgeClass: 'tsmc',
+        name: 'Fab 12 — 신주 GIGAFAB',
+        lat: 24.771, lng: 121.014,
+        type: '파운드리 (12인치)', node: '90nm ~ 5nm · N5 · N7',
+        kspm: 200000, color: '#E51400', letter: 'F',
+        sourceUrl: 'https://semiengineering.com',
+        overview: '90nm~5nm 파운드리 · 신주 핵심 거점 · Apple/AMD 로직 SoC 대량 생산',
+        intel: [
+          { text: '2nm N2 HVM 돌입(2025 Q4) 이후 Fab 20도 N2 양산 합류, 신주 클러스터가 대만 2nm 생산 양축 확정', source: 'Tom\'s Hardware', date: '2025.12.31' },
+          { text: 'N2P(성능강화형)·A16(후면전원) 모두 2026 H2 양산 예정, 신주 R&D팀이 선행 PDK 개발 주도', source: 'TrendForce', date: '2025.12.30' }
+        ]
+      },
+      {
+        company: 'TSMC', badgeClass: 'tsmc',
+        name: 'Fab 14 — 타이난 GIGAFAB',
+        lat: 23.112, lng: 120.278,
+        type: '파운드리 (12인치)', node: '20nm · 16nm · 10nm · 7nm',
+        kspm: 220000, color: '#E51400', letter: 'F',
+        sourceUrl: 'https://semiengineering.com',
+        overview: '20nm~7nm 양산 · 타이난 주력 팹 · NVIDIA·Qualcomm·MediaTek 수탁',
+        intel: [
+          { text: 'N2 2026 풀가동 수혜로 7nm Fab 14 물량은 차량용·산업용으로 재배분, 성숙공정 가동률 93% 유지', source: 'Digitimes', date: '2026.01' },
+          { text: 'TSMC 2026년 성숙공정(7/10/16nm) 웨이퍼 가격 5~10% 인상 단행', source: 'TrendForce', date: '2025.12' }
+        ]
+      },
+      {
+        company: 'TSMC', badgeClass: 'tsmc',
+        name: 'Fab 15 — 타이중 GIGAFAB',
+        lat: 24.212, lng: 120.620,
+        type: '파운드리 (12인치)', node: '16nm · 10nm · 7nm · 6nm',
+        kspm: 180000, color: '#E51400', letter: 'F',
+        sourceUrl: 'https://semiengineering.com',
+        overview: '16nm~6nm AI Edge · PC 프로세서 주력',
+        intel: [
+          { text: 'Qualcomm Snapdragon X 2세대 6nm 배정 확정, 2026년 AI PC 수요 급증 전망에 가동률 92% 예측', source: 'TrendForce', date: '2026.01' },
+          { text: 'AMD Ryzen AI 300 6nm 가동률 90% 이상 유지, AI PC 비중 2026년 전체 PC 출하의 40% 예상', source: 'Digitimes', date: '2025.12' }
+        ]
+      },
+      {
+        company: 'TSMC', badgeClass: 'tsmc',
+        name: 'Fab 18 — 타이난 (3/5nm 최첨단)',
+        lat: 23.114, lng: 120.260,
+        type: '파운드리 최첨단 (12인치)', node: '5nm · 4nm · 3nm (N3E/N3P)',
+        kspm: 320000, color: '#C80000', letter: 'F',
+        sourceUrl: 'https://semiengineering.com',
+        overview: '3nm/5nm 최첨단 양산 · Apple M·A시리즈 · NVIDIA AI GPU 전담',
+        intel: [
+          { text: '2026년 2nm 전환 가속으로 Fab 18 N3 라인 비중 점진 축소, Apple·NVIDIA 물량을 N2(Fab 22/20)로 이관 시작', source: 'SemiWiki', date: '2026.01.09' },
+          { text: 'N3P 공정 웨이퍼 단가 약 $27,000으로 5~10% 인상 확정', source: 'TrendForce', date: '2025.12' }
+        ]
+      },
+      {
+        company: 'TSMC', badgeClass: 'tsmc',
+        name: 'Fab 20 — 신주 바오산 (2nm)',
+        lat: 24.738, lng: 121.040,
+        type: '파운드리 2nm (신규)', node: '2nm (N2) GAA · 양산 개시',
+        kspm: 22000, color: '#FF1A00', letter: 'F', underConstruction: true,
+        sourceUrl: 'https://www.trendforce.com',
+        overview: '2nm GAA 양산 개시 · 최선단 모바일·HPC · ASML High-NA EUV 도입',
+        intel: [
+          { text: '2026~2027년 N2 전체 CAPA 이미 소진 — 신규 고객은 최소 12개월 전 예약 필수', source: 'Cloud News', date: '2026.03.04' },
+          { text: 'TSMC 공식 홈페이지 N2 HVM 개시 확인 — "started volume production in 4Q25 as planned"', source: 'Tom\'s Hardware', date: '2025.12.31' }
+        ]
+      },
+      {
+        company: 'TSMC', badgeClass: 'tsmc',
+        name: 'Fab 22 — 가오슝 난쯔 (2nm 주력)',
+        lat: 22.723, lng: 120.306,
+        type: '파운드리 2nm (대규모)', node: '2nm N2 · P1 양산 · P2~P5 건설',
+        kspm: 60000, color: '#FF1A00', letter: 'F', underConstruction: true,
+        sourceUrl: 'https://www.trendforce.com',
+        overview: '2nm 대규모 양산 · P1 가동·P2~P5 건설 · AI칩 공급 주력',
+        intel: [
+          { text: 'TSMC CEO C.C. Wei "N2 is well on track, with good yield" 확인 — 2026년 스마트폰·HPC AI 수요가 N2 램프업 양대 드라이버', source: 'SemiWiki', date: '2025.12.31' },
+          { text: 'Fab 22 가오슝이 N2 HVM 최초 개시 거점 확정 — TSMC의 이례적 남부 클러스터 우선 가동 전략', source: 'Tom\'s Hardware', date: '2025.12.31' }
+        ]
+      },
+      {
+        company: 'TSMC', badgeClass: 'tsmc',
+        name: 'Fab 25 — 타이중 시툰 (1.4nm)',
+        lat: 24.220, lng: 120.615,
+        type: '파운드리 1.4nm (건설중)', node: '1.4nm (A14) · 2028 양산 목표',
+        kspm: 50000, color: '#FF1A00', letter: 'F', underConstruction: true,
+        sourceUrl: 'https://www.trendforce.com',
+        overview: '1.4nm(A14) 건설중 · High-NA EUV · 2028 양산 목표',
+        intel: [
+          { text: 'TSMC A14는 High-NA EUV 미적용 방침 확정, Intel 14A(High-NA 적용)와 기술 접근법 차별화', source: 'Tom\'s Hardware', date: '2026.01' },
+          { text: 'A16(N2P+후면전원) 2026 H2 양산 후 A14 로드맵 연결, 1.4nm 2028 양산 공식 재확인', source: 'TSMC 공식', date: '2025.12' }
+        ]
+      },
+      {
+        company: 'TSMC', badgeClass: 'tsmc',
+        name: 'AP6 — 주난 CoWoS/SoIC 패키징',
+        lat: 24.714, lng: 120.912,
+        type: '첨단 패키징 (CoWoS·SoIC)', node: 'CoWoS-L/S · SoIC · NVIDIA GPU',
+        kspm: 35000, color: '#8B0000', letter: 'A',
+        sourceUrl: 'https://www.trendforce.com',
+        overview: 'CoWoS/SoIC 첨단 패키징 · NVIDIA H/B시리즈 GPU 전담 · Innolux 디스플레이팹 인수 후 패키징 사업 확장',
+        intel: [
+          { text: 'NVIDIA Vera Rubin 플랫폼 Q1 2026 양산 진입, CoWoS 패키징 물량 AP5B 신규 팹과 분산 수용', source: 'TrendForce', date: '2026.02' },
+          { text: 'Innolux P4(FAB4) Gen5.5 2024.08 인수 — AI CoWoS 패키징 병목 해소, 주난 AP6와 함께 패키징 클러스터 확장', source: 'TrendForce / Taipei Times', date: '2024.08' }
+        ]
+      },
+      {
+        company: 'TSMC', badgeClass: 'tsmc',
+        name: 'AP5B — 타이중 첨단 패키징',
+        lat: 24.210, lng: 120.630,
+        type: '첨단 패키징 (신규)', node: 'CoWoS 증설 · 2026 완공',
+        kspm: 15000, color: '#8B0000', letter: 'A', underConstruction: true,
+        sourceUrl: 'https://www.trendforce.com',
+        overview: 'CoWoS 증설 패키징 팹 · AI GPU 수요 대응 · 2026년 완공',
+        intel: [
+          { text: '2026년 H1 완공 및 즉시 가동 목표, NVIDIA Rubin 물량 분산 수용으로 CoWoS 병목 해소 기대', source: 'TrendForce', date: '2026.01' },
+          { text: 'AI 서버 패키징 수요 2026년 전년 대비 3배 이상 증가 전망, TSMC 연간 CoWoS 계획 상향 조정', source: 'Digitimes', date: '2025.12' }
+        ]
+      },
+      {
+        company: 'TSMC', badgeClass: 'tsmc',
+        name: 'Fab 21 — 애리조나 (미국)',
+        lat: 33.840, lng: -112.144,
+        type: '파운드리 (미국)', node: '4nm 양산 · 3nm(2028) · 2nm(2030)',
+        kspm: 20000, color: '#E51400', letter: 'F',
+        sourceUrl: 'https://semiengineering.com',
+        overview: '4nm 양산중 · Apple·AMD 수탁 · 미국 CHIPS법 $66B 수혜',
+        intel: [
+          { text: 'Apple·NVIDIA 미국산 칩 공급 압박으로 TSMC Arizona 2nm·A16 도입 기존 2030 계획 대비 대폭 앞당겨 2027년 확정', source: 'Markets Financial Content', date: '2026.01.02' },
+          { text: '미국 CHIPS 보조금 66억 달러 최종 확정, Fab 21 3nm 장비 반입 당초보다 수 개월 앞당겨 진행 중', source: 'EE News Europe', date: '2026.01' }
+        ]
+      },
+      {
+        company: 'TSMC', badgeClass: 'tsmc',
+        name: 'JASM — 구마모토 1·2팹 (일본)',
+        lat: 32.881, lng: 130.825,
+        type: '파운드리 (일본)', node: '22/28nm · 16nm · 6nm(2027)',
+        kspm: 55000, color: '#E51400', letter: 'F',
+        sourceUrl: 'https://semiengineering.com',
+        overview: '22~28nm 파운드리 · Sony·Denso 협력 · 일본 정부 보조금 전폭 지원',
+        intel: [
+          { text: '제2팹 6nm 건설 착공 확정, 일본 정부 JASM 추가 보조금 7,300억엔 투입 공식 발표', source: 'Nikkei Asia', date: '2025.12' },
+          { text: '제1팹 22/28nm 풀가동 중, Toyota·Sony·Denso 사전 계약으로 수주율 80%+ 유지', source: 'Digitimes', date: '2025.11' }
+        ]
+      },
+      {
+        company: 'TSMC', badgeClass: 'tsmc',
+        name: 'ESMC — 드레스덴 (독일)',
+        lat: 51.128, lng: 13.738,
+        type: '파운드리 (건설중)', node: '28/22nm · 16nm · Automotive',
+        kspm: 40000, color: '#E51400', letter: 'F', underConstruction: true,
+        sourceUrl: 'https://semiengineering.com',
+        overview: '28nm·16nm 건설중 · 유럽 차량반도체 · NXP·Infineon·Bosch 협력',
+        intel: [
+          { text: 'EU Chips Act 보조금 최종 확정 후 기공식 완료, 2027년 양산 목표로 클린룸 건설 진행 중', source: 'EE Times', date: '2025.12' },
+          { text: 'NXP·인피니언·보쉬와 장기 공급 계약 체결, 유럽 차량반도체 EU 내재화 전략 본격화', source: 'Semiconductor Engineering', date: '2025.11' }
+        ]
+      },
+
+      // ★ SHARP
+      {
+        company: 'Sharp', badgeClass: 'sharp',
+        name: 'SDP 사카이 Gen10 — 오사카 (AI/반도체 인프라 전환)',
+        lat: 34.595, lng: 135.438,
+        type: 'Gen10 LCD (2024.08 폐쇄)', node: 'LCD 생산 종료 → AI DC & 반도체 패키징',
+        kspm: 0, color: '#4F46E5', letter: '폐',
+        isClosed: true,
+        closedNote: '2024.08 생산 종료 · SoftBank/KDDI AI 데이터센터 및 Intel 반도체 패키징 거점 전환',
+        sourceUrl: 'https://asia.nikkei.com/business/electronics/sharp-to-cease-lcd-plant-operation-end-japan-s-large-panel-production',
+        overview: '2009년 가동된 세계 최초 10세대 LCD 팹. 중국발 가격 경쟁으로 2024년 8월 폐쇄되었으나, 현재 거대한 클린룸과 전력·냉각망을 재활용해 첨단 AI 데이터센터 및 반도체 인프라로 탈바꿈 중입니다.',
+        intel: [
+          { text: 'SoftBank 및 KDDI 초대형 AI 데이터센터 구축 — 공장 부지의 약 60%를 활용해 SoftBank는 150MW급 AI DC(2025년 가동)를, KDDI는 NVIDIA 최신 GB200 서버를 대거 도입한 AI DC(2026년 가동)를 조성 중입니다.', source: 'Nikkei Asia', date: '2024.06' },
+          { text: 'Intel 주도의 첨단 반도체 후공정(패키징) R&D 거점화 — Intel이 일본 내 14개 주요 소재·부품·장비 기업과 연합하여, 기존 사카이 공장의 고청정 클린룸 설비를 차세대 반도체 패키징 연구 및 테스트 시설로 전환하기로 확정했습니다.', source: 'TrendForce', date: '2024.08' }
+        ]
+      },
+      {
+        company: 'Sharp', badgeClass: 'sharp',
+        name: 'Kameyama No.1 Gen8 — 미에현 (운영)',
+        lat: 34.857, lng: 136.439,
+        type: 'Gen8 LCD (자동차·특수)', node: 'Gen8 LCD · 차량·특수 고부가 패널',
+        kspm: 15000, color: '#4F46E5', letter: 'K',
+        sourceUrl: 'https://displaydaily.com/foxconn-walks-away-from-sharps-kameyama-lcd-plant-and-that-tells-you-everything/',
+        overview: 'Sharp 가메야마 No.1 — No.2 폐쇄 결정 후 Sharp LCD 최후 거점 · 자동차·특수 고부가 패널 전담',
+        intel: [
+          { text: 'Sharp 가메야마 No.1 — No.2 폐쇄 이후 자동차·특수 고부가 LCD 전담 거점으로 집중, Sharp 유일 LCD 생산 기지', source: 'Display Daily', date: '2025.02' }
+        ]
+      },
+      {
+        company: 'Sharp', badgeClass: 'sharp',
+        name: 'Kameyama No.2 Gen8 — 미에현 (2026.08 폐쇄)',
+        lat: 34.853, lng: 136.435,
+        type: 'Gen8 LCD (2026.08 폐쇄 예정)', node: 'Gen8 LCD · 스마트폰·PC (Foxconn 매각 결렬)',
+        kspm: 0, color: '#4F46E5', letter: '폐',
+        isClosed: true,
+        closedNote: '2026.08 생산 종료 예정 · Foxconn 매입 협상 최종 결렬(2026.02.10) · 1,170명 조기 퇴직 · 구조조정비용 ¥149억($96M)',
+        sourceUrl: 'https://displaydaily.com/foxconn-walks-away-from-sharps-kameyama-lcd-plant-and-that-tells-you-everything/',
+        overview: 'Foxconn의 가메야마 No.2 매입 협상 최종 결렬(2026) · Sharp 2026.08 생산 종료 확정 · 부모 회사도 포기한 일본 LCD 패배의 상징',
+        intel: [
+          { text: 'Foxconn, 2026.02.10 Sharp 가메야마 No.2 LCD 매입 공식 철수 — LCD 패널 가격 약세 이유, 구조조정비용 ¥149억($96M), 1,170명 조기퇴직, ¥129억 특별손실 2026.03기말 계상', source: 'Nikkei Asia / Japan Today', date: '2026.02' },
+          { text: 'Sharp, 요나고(鳥取県) 자회사 공장도 2026.07 별도 폐쇄 계획 확정 — 인도 LCD 기술 이전 계획도 철회, LCD 사업 전면 축소', source: 'Sixteen Nine / Channel News', date: '2026.02' }
+        ]
+      },
+      {
+        company: 'Sharp', badgeClass: 'sharp',
+        name: 'Hakusan Fab — 이시카와현 하쿠산',
+        lat: 36.515, lng: 136.561,
+        type: 'Gen6 LTPS LCD / MicroLED R&D', node: 'Gen6 LTPS LCD · 스마트폰',
+        kspm: 25000, color: '#4F46E5', letter: 'H',
+        sourceUrl: 'http://www.thelec.net/news/articleView.html?idxno=1454',
+        overview: '과거 JDI가 Apple의 자금을 지원받아 건설했으나, 2020년 10월 Sharp가 3억 9천만 달러에 인수한 스마트폰용 패널 거점. 이후 MicroLED R&D 라인으로의 전환 추진.',
+        intel: [
+          { text: 'JDI의 경영 악화로 인해 2020년 Sharp가 토지와 건물을 411억 엔에 최종 인수하여 iPhone용 패널 생산 및 차세대 디스플레이 개발 기지로 편입', source: 'TheElec / JDI', date: '2020.10' }
+        ]
+      },
+      {
+        company: 'Sharp', badgeClass: 'sharp',
+        name: 'Yonago Fab — 돗토리현 요나고 (2026.07 폐쇄)',
+        lat: 35.438, lng: 133.310,
+        type: '중소형 LCD (2026.07 폐쇄 예정)', node: '중소형 패널',
+        kspm: 0, color: '#4F46E5', letter: '폐',
+        isClosed: true,
+        closedNote: '2026.07 생산 종료 예정 · 디스플레이 사업 전면 구조조정',
+        sourceUrl: 'https://www.sixteen-nine.net/2026/02/24/sharp-to-shut-down-kameyama-lcd-plant-after-foxconn-sale-talks-collapse/',
+        overview: 'Sharp의 중소형 LCD 자회사 공장. Kameyama No.2 공장과 함께 Sharp의 LCD 사업 전면 축소 및 구조조정 계획에 따라 2026년 7월 폐쇄 확정.',
+        intel: [
+          { text: 'Foxconn의 Kameyama 매입 결렬과 함께, 디스플레이 제조 운영 전반의 구조조정 일환으로 요나고(Yonago) 자회사 공장도 2026년 7월에 폐쇄하기로 최종 결정', source: 'Sixteen Nine', date: '2026.02' }
+        ]
+      },
+      {
+        company: 'Sharp', badgeClass: 'sharp',
+        name: 'Tenri Fab — 나라현 덴리 (R&D 및 선행생산)',
+        lat: 34.618, lng: 135.828,
+        type: '디스플레이 R&D / 특수 패널', node: '선행 기술 R&D',
+        kspm: 5000, color: '#4F46E5', letter: 'R',
+        sourceUrl: 'https://global.sharp/products/device/base/index.html',
+        overview: 'Sharp의 디스플레이 연구 개발(R&D) 및 전자 부품 선행 생산 거점. 차세대 패널 기술의 기틀을 다지는 연구소 겸 소규모 팹.',
+        intel: [
+          { text: 'Sharp Semiconductor Innovation Corporation(SSIC)과 함께 선행 디스플레이 및 반도체 부품 R&D의 핵심 역할을 수행', source: 'Sharp Global', date: '2024.01' }
+        ]
+      },    
+      // ★ JDI
+      {
+        company: 'JDI', badgeClass: 'jdi',
+        name: 'Mobara Fab — 지바현 모바라',
+        lat: 35.428, lng: 140.302,
+        type: 'Gen6 LTPS LCD / 차세대 OLED', node: 'Gen6 LTPS LCD · eLEAP OLED (차세대)',
+        kspm: 50000, color: '#1D4ED8', letter: 'J', isOled: true,
+        sourceUrl: 'https://www.j-display.com/en/company/domestic/',
+        overview: 'Japan Display Inc.(JDI)의 주력 생산 거점. 스마트폰/IT용 LTPS LCD와 차세대 마스크리스 친환경 OLED 기술인 eLEAP의 양산을 주도하는 핵심 팹.',
+        intel: [
+          { text: 'JDI는 모바라 팹의 일부 유휴 설비를 매각 및 AI 데이터센터로 전환하는 동시에, 차세대 8.7세대 eLEAP 기술 개발 및 양산 라인업 확충에 집중', source: 'Japan Display Inc.', date: '2024' }
+        ]
+      },
+      // ★ HKC
+      {
+        company: 'HKC', badgeClass: 'hkc',
+        name: 'HKC Chongqing Gen8.5 — 충칭',
+        lat: 29.355, lng: 106.415,
+        type: 'Gen8.5 LCD (TV·모니터)', node: 'Gen8.5 LCD · TV·모니터',
+        kspm: 80000, color: '#B45309', letter: 'H', isChina: true,
+        sourceUrl: 'https://www.oled-info.com/',
+        overview: 'HKC 충칭 Gen8.5 LCD · TV·모니터 저원가 패널 · H1 2025 매출 $2.6B·영업이익 $297M · IPO 2026 예정',
+        intel: [
+          { text: 'HKC IPO 선전증시 최종 승인(2026.03.03) — ¥85억($1.6B) 조달 예정, 창사 OLED R&D ¥25억, Oxide R&D ¥30억, 몐양 MiniLED/MicroLED ¥20억 투자 계획', source: 'TheElec / OLED-Info', date: '2026.03' },
+          { text: 'HKC 선전 Innovation Semiconductor Display Industrial Park에서 첫 스마트폰 AMOLED 샘플 생산(2025.07) — Oxide-TFT(IGZO) 백플레인, 2025.11 첫 OLED 패널 오더 수주', source: 'OLED-Info', date: '2025.11' }
+        ]
+      },
+      {
+        company: 'HKC', badgeClass: 'hkc',
+        name: 'HKC Mianyang Gen8.5 + MiniLED — 쓰촨 몐양',
+        lat: 31.545, lng: 104.640,
+        type: 'Gen8.5 LCD + MiniLED (건설중)', node: 'Gen8.5 LCD · MiniLED 직시형 · $280M',
+        kspm: 50000, color: '#B45309', letter: 'H', isChina: true,
+        sourceUrl: 'https://www.oled-info.com/',
+        overview: 'HKC 몐양 Gen8.5 LCD · IPO 자금으로 MiniLED 직시형 팹($280M) 추가 투자 예정',
+        intel: [
+          { text: 'HKC 몐양 — Gen8.5 LCD 운영 중, IPO 조달 자금으로 MiniLED 팹($280M) 신설 예정, 향후 MicroLED로 로드맵 연결', source: 'OLED-Info', date: '2026.02' }
+        ]
+      },
+      {
+        company: 'HKC', badgeClass: 'hkc',
+        name: 'HKC Chuzhou Gen8.5 — 안후이 추저우',
+        lat: 32.228, lng: 118.328,
+        type: 'Gen8.5 LCD (TV·모니터)', node: 'Gen8.5 LCD · TV·모니터',
+        kspm: 60000, color: '#B45309', letter: 'H', isChina: true,
+        sourceUrl: 'https://www.oled-info.com/hkc',
+        overview: 'HKC 추저우 Gen8.5 LCD 팹 · TV·모니터 패널 · 중국 3위 LCD 생산거점',
+        intel: [
+          { text: 'HKC는 충칭·추저우·몐양 3개 LCD 생산거점 운영 — LCD 시장 점유율 TV 10%+, 전체 디스플레이 산업 6.5%', source: 'OLED-Info', date: '2025.07' }
+        ]
+      },
+      // ★ TIANMA
+      {
+        company: 'Tianma', badgeClass: 'tianma',
+        name: 'Tianma Wuhan — Gen6 LTPS AMOLED (스마트폰 주력)',
+        lat: 30.485, lng: 114.562,
+        type: 'Gen6 OLED (스마트폰)', node: 'Gen6 LTPS/LTPO OLED · 스마트폰 · 185Hz',
+        kspm: 30000, color: '#9D174D', letter: 'T', isOled: true, isChina: true,
+        sourceUrl: 'https://www.oled-info.com/tianma-oled',
+        overview: 'Tianma 우한 Gen6 OLED 주력 팹 · 2025년 7,500만+ 장(+20%) · 스마트폰 AMOLED 글로벌 8~10% · 세계 최초 185Hz OLED 양산',
+        intel: [
+          { text: 'Tianma 2025년 OLED 7,500만+ 장(+20%) 달성, 글로벌 스마트폰 AMOLED 8~10% 점유율 — BOE·SDC·LGD에 이은 세계 4위 OLED 공급사', source: 'OLED-Info (Spotlight 2026.01)', date: '2026.01' },
+          { text: 'Tianma 세계 최초 185Hz 스마트폰 OLED 양산 — Honor Win 게이밍폰(6.83인치, 6,000nit, 1272x2800)에 최초 탑재', source: 'OLED-Info', date: '2025.12' },
+          { text: 'Tianma TIC 2025(2025.11.18 우한) — SLOD 탠덤 OLED, HOI(지문+주변광+OLED수명 통합센서), LTPO 3.0 Pro, 폴더블 G형 3단 접이 등 11가지 신기술 발표', source: 'Tianma TIC 2025', date: '2025.11' }
+        ]
+      },
+      {
+        company: 'Tianma', badgeClass: 'tianma',
+        name: 'Tianma Xiamen — Gen6 LTPS AMOLED (자동차·IT)',
+        lat: 24.646, lng: 118.238,
+        type: 'Gen6 OLED (차량·산업)', node: 'Gen6 LTPS OLED · 차량용·의료·웨어러블',
+        kspm: 20000, color: '#9D174D', letter: 'T', isOled: true, isChina: true,
+        sourceUrl: 'https://www.oled-info.com/tianma-oled',
+        overview: 'Tianma 샤먼 Gen6 OLED · 자동차·의료·산업용 특화 · CES 2026 자동차 디스플레이 신기술 공개',
+        intel: [
+          { text: 'Tianma CES 2026 — Slidable Tandem OLED, 3D 클러스터+아이트래킹, 투명 MicroLED HUD 등 자동차 디스플레이 신기술 공개', source: 'Insight Media', date: '2026.01' },
+          { text: 'Tianma R&D 거점: Chengdu·Wuhan·Xiamen·Wuhu·Shenzhen·Shanghai — 자동차·의료·산업용 Oxide/LTPS LCD·AMOLED·MicroLED 풀라인업 공급', source: 'Tianma America Press Release', date: '2025.01' }
+        ]
+      },
+      // ★ VISIONOX
+      {
+        company: 'Visionox', badgeClass: 'visionox',
+        name: 'Visionox V1/V2/V3 — 쿤산·허페이·허베이',
+        lat: 31.385, lng: 121.050,
+        type: 'Gen5.5/Gen6 OLED (스마트폰)', node: 'Gen5.5 Rigid + Gen6 Flexible AMOLED',
+        kspm: 35000, color: '#7C2D12', letter: 'V', isOled: true, isChina: true,
+        sourceUrl: 'https://www.oled-info.com/visionox',
+        overview: 'Visionox 쿤산(V1)·허페이(V2)·허베이(V3) Gen5.5/6 OLED · H1 2025 스마트폰 OLED 점유율 9.1%(4위)',
+        intel: [
+          { text: 'Visionox H1 2025 글로벌 스마트폰 OLED 점유율 9.1%(Sigmaintell) — 폴더블 OLED H2 2025 50만장 출하', source: 'Yicai Global', date: '2025.11' },
+          { text: 'Visionox pTSF(polymer Thin Solid Film) 기반 마스크리스 OLED 양산 개시(2026.03) — FMM 불필요, UDC와 협력 인광 재료 사용, FMM-free 세계 최초 상용화', source: 'OLED-Info', date: '2026.03' }
+        ]
+      },
+      {
+        company: 'Visionox', badgeClass: 'visionox',
+        name: 'Visionox V5 — 허페이 8.6G OLED (건설중)',
+        lat: 31.930, lng: 117.320,
+        type: 'Gen8.6 IT OLED (건설중)', node: 'Gen8.6 ViP 마스크리스 OLED · $7.6B',
+        kspm: 30000, color: '#7C2D12', letter: 'N', isOled: true, isChina: true, underConstruction: true,
+        sourceUrl: 'https://www.oled-info.com/visionox',
+        overview: '$7.6B(¥540억) 허페이 8.6G OLED · 2025.02 착공 · ViP 마스크리스 공정 도입 · 재무 불안으로 지방정부 전략적 투자자 협상 중',
+        intel: [
+          { text: 'Visionox V5 허페이 8.6G 2025.02 착공 — $7.6B, ViP 마스크리스 OLED 차별화 전략, SDC·BOE·CSOT와 4파전', source: 'UBIResearch', date: '2025.12' },
+          { text: 'Visionox 2025년 3분기 누적 손실 $2.25억 — 지방정부 투자기관 전략적 투자 협상 중, V5 자금조달 불확실성 존재 · 중국 OLED 전체 투자 속도 조절 분위기', source: 'Yicai Global / OLED-Info', date: '2026.03' }
+        ]
+      }
+    ]; // END fabs
+
+    /* ─ Marker placement ─ */
+    fabs.forEach(function(fab) {
+      var marker = L.marker([fab.lat, fab.lng], { icon: createIcon(fab) }).addTo(map);
+
+      marker.on('mouseover', function(e) { showHoverPopup(fab, e); });
+      marker.on('mouseout', function() { hideHoverPopup(); });
+      marker.on('touchstart', function(e) {
+        L.DomEvent.stopPropagation(e);
+        showTouchPopup(fab);
+      });
+    });
+
+    map.on('click', function() { closeHoverPopup(); });
+  </script>
+</body>
+</html>
